@@ -3,4 +3,7 @@ dist/
 .wasm-pack/
 *.tsbuildinfo
 .DS_Store
+
+# Rust build artifacts (workspace target lives at the repo root)
+/target/
 /crates/*/target/
