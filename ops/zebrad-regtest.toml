@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Zebra regtest configuration for Veilo.
+#
+# Why regtest and not public Testnet:
+#   * `zebrad` publishes Linux-only binaries (aarch64/x86_64 gnu), so no node can run
+#     on the builder's Windows machine at all.
+#   * Public Testnet explorer endpoints tested on Oct 12 were unreachable, and
+#     lightwalletd only serves ZIP-307 *compact* outputs (52 bytes, no memo), so it
+#     cannot supply the full 580-byte encCiphertexts the auditor needs.
+#   * Regtest SKIPS Proof-of-Work validation entirely and can activate NU6.3 and NU7
+#     at height 1, so the demo exercises the real target network rules (Ironwood
+#     pool, enableCrossAddress = 0, 25-second spacing) deterministically and offline.
+#
+# Copy the miner address out of ops/keys/miner_address.txt before first use, or run
+# `bash ops/fund.sh` which regenerates it.
+
+[network]
+network = "Regtest"
+
+# Activate every upgrade we care about at height 1 so the regtest chain follows
+# NU6.3 + NU7 rules from genesis. Height 0 is reserved for the Genesis upgrade.
+[network.testnet_parameters.activation_heights]
+NU5 = 1
+NU6 = 1
+Canopy = 1
+NU6_1 = 1
+NU6_2 = 1
+NU6_3 = 1
+NU7 = 1
+
+# Enough value in the NSM balance that ZIP-237's reissuance rules do not trip over
+# an empty balance on a chain this short.
+[network.testnet_parameters]
+initial_nsm_value_balance = 100000000
+nsm_reissuance_height = 1000000000
+
+# Non-persistent chain state. Every restart is a clean chain, which is exactly what
+# a deterministic demo wants.
+[state]
+ephemeral = true
+
+# Needed for send_raw_transaction so non-coinbase txs get mined onto the chain.
+[rpc]
+listen_addr = "0.0.0.0:8232"
+enable_zmq = false
+
+# Filled in by ops/fund.sh.
+[mining]
+miner_address = "REPLACE_ME"
+
+[metrics]
+listen_addr = "127.0.0.1:9990"
+
+[sentry]
+enabled = false
+
+[logging]
+colour = true
+
+# Internal miner: mines a block per transaction plus keep-alive blocks so the
+# auction window advances without a human pressing anything.
+[internal_miner]
+# No entries here: ops/mine.sh drives it via the internal-miner RPC so the demo can
+# step the chain deliberately.

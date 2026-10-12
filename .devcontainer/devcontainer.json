@@ -1,0 +1,34 @@
+{
+  "name": "Veilo — Zcash auditor workspace",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "features": {
+    "ghcr.io/devcontainers/features/rust:1": {
+      "version": "stable",
+      "profile": "minimal"
+    },
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22"
+    }
+  },
+  "onCreateCommand": "bash ops/bootstrap.sh",
+  "postCreateCommand": "bash ops/bootstrap.sh",
+  "postAttachCommand": "bash ops/status.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode"
+      ],
+      "settings": {
+        "rust-analyzer.cargo.target": "wasm32-unknown-unknown",
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  },
+  "remoteUser": "vscode",
+  "containerEnv": {
+    "ZEBO_NETWORK": "Regtest",
+    "RUST_BACKTRACE": "1"
+  }
+}
