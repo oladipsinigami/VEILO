@@ -627,7 +627,7 @@ mod tests {
             order_key: "1101:000000".to_string(),
             claimed_address: SELLER.to_string(),
         }];
-        let open = |k: &str| Ok(SELLER.to_string());
+        let open = |_k: &str| Ok(SELLER.to_string());
         let ex = apply_seller_exclusion(r.clone(), &auction(), &proofs, &open);
         assert_eq!(ex.excluded_count, 1);
         assert!(ex.rejected_proofs.is_empty());

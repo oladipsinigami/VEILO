@@ -129,8 +129,8 @@ fn rust_reproduces_typescript_auction_outcomes() {
         }
 
         let mut reveals = BTreeMap::new();
-        for (k, v) in &s.f {
-            if let Some(key) = k.strip_prefix("reveal_") {
+        for (key, v) in &s.f {
+            if let Some(key) = key.strip_prefix("reveal_") {
                 reveals.insert(key.to_string(), v.parse().unwrap());
             }
         }

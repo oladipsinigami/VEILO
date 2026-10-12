@@ -31,6 +31,30 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
+  # 0. Auto-format. `cargo fmt --check` gates the rust job below, but rustfmt
+  #    cannot be run locally on this machine: Smart App Control blocks the binary
+  #    rustup downloads (os error 4551). So CI formats and commits instead.
+  # ---------------------------------------------------------------------------
+  fmt:
+    name: fmt
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all
+      - uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "style: cargo fmt"
+          # Single-quoted: YAML rejects backslash escapes in double-quoted scalars.
+          file_pattern: 'crates/.*\.rs'
+
+  # ---------------------------------------------------------------------------
   # 1. TypeScript: bid construction, ZIP-321, auction math, vector generation
   # ---------------------------------------------------------------------------
   ts:
@@ -165,16 +189,20 @@ jobs:
         id: zebra
         run: |
           set -euo pipefail
-          ZEBRA_VERSION=7.0.0-rc.0
+          # Pinned to a commit SHA. `--rev main` fails with
+          #   "revspec 'main' not found; class=Reference (4); code=NotFound (-3)"
+          # even though the branch exists, and a SHA also makes this build
+          # reproducible instead of tracking whatever main happens to be.
+          ZEBRA_REV=c1f84f3ee92a577ebaeaf5753a5f3cf261428e8e
           # The prebuilt release is NOT built with the experimental
           # `internal-miner` feature. In zebra-rpc/src/config/mining.rs,
           # `is_internal_miner_enabled` is #[cfg(feature = "internal-miner")], so
           # without it the method does not exist and `internal_miner = true` is
           # silently inert. Build from source instead.
-          echo "Building zebrad with --features internal-miner (cold build, be patient)"
+          echo "Building zebrad ${ZEBRA_REV} with --features internal-miner (cold build, be patient)"
           CARGO_TARGET_DIR="$PWD/target-zebra" cargo install --locked \
             --git https://github.com/ZcashFoundation/zebra \
-            --rev main --bin zebrad \
+            --rev "$ZEBRA_REV" --bin zebrad \
             --no-default-features \
             --features internal-miner,release_max_level_info \
             --root "$PWD/.zebra-install"

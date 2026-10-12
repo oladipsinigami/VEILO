@@ -12,7 +12,11 @@ description = "Veilo memo codec, Vickrey pricing, and seller-exclusion verificat
 blake2 = { version = "0.10", default-features = false }
 chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
 x25519-dalek = { version = "2.0", default-features = false, features = ["alloc", "static_secrets", "precomputed-tables"] }
-getrandom = { version = "0.2", default-features = false }
+# The "js" feature supplies randomness in the browser via WebCrypto, which is the
+# whole point of shipping the auditor to wasm32-unknown-unknown. Without it,
+# getrandom refuses to compile for that target with:
+#   "the wasm*-unknown-unknown targets are not supported by default"
+getrandom = { version = "0.2", default-features = false, features = ["js"] }
 
 [features]
 default = []
