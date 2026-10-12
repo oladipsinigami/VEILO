@@ -60,7 +60,18 @@ listen_addr = "0.0.0.0:8232"
 # without the feature and `internal_miner = true` is silently inert. The prebuilt
 # release binaries are NOT built with it -- see ops/build-zebra.sh.
 #
-# ops/fund.sh overwrites miner_address with one from z_getnewaddress.
+# `miner_address` is deliberately ABSENT in this base config, not set to a
+# placeholder. It is `Option<ZcashAddress>`, so omitting it is valid and the node
+# starts and serves RPC without it -- which is exactly what ops/fund.sh needs, since
+# the first legitimate address can only come FROM the running node via
+# z_getnewaddress.
+#
+# A placeholder string does not work: zebrad parses this field eagerly and rejects
+# anything that is not a valid Zcash address ("Not a Zcash address for key
+# 'mining.miner_address'"). A hand-written tm... string fails the Base58Check
+# checksum. There is no valid mainnet-vs-regtest prefix to hand-roll here either,
+# so omitting is the only correct starting state.
+#
+# ops/fund.sh writes the real address in and flips internal_miner to true.
 [mining]
-miner_address = "REPLACE_ME"
-internal_miner = true
+internal_miner = false

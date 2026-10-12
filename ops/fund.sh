@@ -40,16 +40,14 @@ else
   exit 1
 fi
 
-# ---- Phase 1: start with mining disabled so the RPC answers -------------
-echo "== phase 1: boot node without mining =="
-if grep -q 'miner_address = "REPLACE_ME"' "$CONFIG"; then
-  echo "  no miner address yet -> starting without one"
-  # Neutralise miner_address so the node starts at all.
-  cp "$CONFIG" ops/zebrad-regtest.toml.bak
-  sed -i 's/^miner_address = "REPLACE_ME"/miner_address = "tmEvsG7YUCGXd9T5qJfR1p4FZ4Yt1RgqG7v8YbXtLGNmA"/' "$CONFIG"
-  sed -i 's/^internal_miner = true/internal_miner = false/' "$CONFIG"
-  bash ops/up.sh || { cp ops/zebrad-regtest.toml.bak "$CONFIG"; exit 1; }
-else
+# ---- Phase 1: boot with mining disabled --------------------------------
+# No substitution needed. The base config omits miner_address entirely, which is
+# valid because it is Option<ZcashAddress>. An earlier version wrote a hand-rolled
+# tm... placeholder and zebrad rejected it: "Not a Zcash address for key
+# 'mining.miner_address'" -- the string has to pass Base58Check, which a made-up
+# one does not.
+echo "== phase 1: boot node without a miner address =="
+if ! alive; then
   bash ops/up.sh
 fi
 
@@ -70,15 +68,7 @@ echo "$ADDR" | tee ops/keys/miner_address.txt
 echo
 echo "== phase 3: restart with mining enabled =="
 stop_ze
-python3 - "$CONFIG" "$ADDR" <<'PY'
-import sys, re
-path, addr = sys.argv[1], sys.argv[2]
-s = open(path, encoding="utf-8").read()
-s = re.sub(r'miner_address = ".*?"', f'miner_address = "{addr}"', s)
-s = s.replace("internal_miner = false", "internal_miner = true")
-open(path, "w", encoding="utf-8").write(s)
-print("  config updated")
-PY
+python3 ops/set-miner-address.py "$CONFIG" "$ADDR"
 bash ops/up.sh
 
 # ---- Phase 4: mine past coinbase maturity -------------------------------

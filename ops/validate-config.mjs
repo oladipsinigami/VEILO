@@ -43,7 +43,9 @@ const RPC_KEYS = [
   "max_response_body_size",
 ];
 
-// Keys accepted under [mining].
+// Keys accepted under [mining]. `miner_address` is deliberately absent from the base
+// config: it is Option<ZcashAddress>, so omitting it is valid, and any placeholder
+// string is rejected ("Not a Zcash address for key 'mining.miner_address'").
 const MINING_KEYS = ["miner_address", "extra_coinbase_data", "miner_memo", "internal_miner"];
 
 // Keys accepted under [state].
@@ -152,6 +154,21 @@ for (let i = 1; i < values.length; i++) {
     );
   }
 }
+// If a miner_address IS present it must at least look like a Zcash address.
+// A placeholder will be rejected by zebrad with a Base58Check parse error.
+const minerLine = raw
+  .split(/\r?\n/)
+  .find((l) => /^\s*miner_address\s*=/.test(l));
+if (minerLine) {
+  const addr = minerLine.split("=")[1].trim().replace(/^"|"$/g, "");
+  if (!/^(t1|t3|tm|tm2|zs|zu)[A-Za-z0-9]{6,}$/.test(addr)) {
+    errors.push(
+      `mining.miner_address is present but does not look like a Zcash address: "${addr}". ` +
+        `zebrad parses this eagerly; omit the key entirely instead of using a placeholder.`
+    );
+  }
+}
+
 if (values.some((v) => v.value < 1)) {
   errors.push("activation heights must be >= 1 (height 0 is reserved for Genesis)");
 }
