@@ -256,7 +256,8 @@ export interface RefundSeal {
 export function sealRefundAddress(
   pkRefund: Uint8Array,
   refundAddress: string,
-  aad?: Uint8Array
+  aad?: Uint8Array,
+  eskRefund?: Uint8Array
 ): RefundSeal {
   if (pkRefund.length !== 32) {
     throw new VeiloError("SizeMismatch", "PK_refund must be 32 bytes");
@@ -270,9 +271,15 @@ export function sealRefundAddress(
     );
   }
 
-  const eskRefund = randomBytes(32);
-  const epkRefund = x25519.getPublicKey(eskRefund);
-  const shared = x25519.getSharedSecret(eskRefund, pkRefund);
+  // The ephemeral seed is injectable so cross-implementation test vectors can pin
+  // it; callers that do not care get a CSPRNG value. Mirrors the Rust
+  // seal_refund_address_with_seed / seal_refund_address pair exactly.
+  const esk = eskRefund ?? randomBytes(32);
+  if (esk.length !== 32) {
+    throw new VeiloError("SizeMismatch", "esk_refund must be 32 bytes");
+  }
+  const epkRefund = x25519.getPublicKey(esk);
+  const shared = x25519.getSharedSecret(esk, pkRefund);
   const key = domainBlake2b(PAD_DOMAIN, shared);
 
   const padded = new Uint8Array(REFUND_PLAINTEXT_MAX);
