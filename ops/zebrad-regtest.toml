@@ -44,9 +44,18 @@ ephemeral = true
 listen_addr = "0.0.0.0:8232"
 enable_zmq = false
 
-# Filled in by ops/fund.sh.
+# Filled in by ops/fund.sh from z_getnewaddress.
+#
+# `internal_miner` lives HERE, inside [mining] -- there is no top-level
+# [internal_miner] table, and the config uses deny_unknown_fields, so an unknown
+# table makes zebrad refuse to start.
+#
+# It is also gated on the cargo feature `internal-miner`: `is_internal_miner_enabled`
+# does not exist at all in a build without it. The prebuilt release binaries are NOT
+# built with that feature, so ops/build-zebra.sh compiles one from source.
 [mining]
 miner_address = "REPLACE_ME"
+internal_miner = true
 
 [metrics]
 listen_addr = "127.0.0.1:9990"
@@ -56,9 +65,3 @@ enabled = false
 
 [logging]
 colour = true
-
-# Internal miner: mines a block per transaction plus keep-alive blocks so the
-# auction window advances without a human pressing anything.
-[internal_miner]
-# No entries here: ops/mine.sh drives it via the internal-miner RPC so the demo can
-# step the chain deliberately.
