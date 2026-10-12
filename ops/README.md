@@ -39,6 +39,23 @@ script does that for you.
   `lightwalletd` only serves ZIP-307 **compact** outputs (52 bytes, no memo), so it cannot
   supply the full 580-byte `encCiphertext` the auditor needs.
 
+## Known trap: `NU6` is not a real network upgrade
+
+Zebra's config is `deny_unknown_fields`, so a single wrong key makes zebrad refuse to
+start with:
+
+```
+Configuration error: unknown field `NU6`, expected one of `Overwinter`, `Sapling`,
+`Blossom`, `Heartwood`, `Canopy`, `NU5`, `NU6_1`, `NU6_2`, `NU6_3`, `NU7`
+```
+
+That is the complete, authoritative list. There is no `NU6` — the sequence goes NU5, then
+straight to NU6_1. Activation heights must also be strictly increasing, which is why
+`ops/zebrad-regtest.toml` spaces them 1..10 instead of setting them all to 1.
+
+If zebrad ever rejects the config again, run `zebrad generate` to emit a canonical file
+and diff it against ours.
+
 ## The one thing that may not work out of the box
 
 `ops/bootstrap.sh` tries to download the prebuilt zebrad binary first. **The prebuilt

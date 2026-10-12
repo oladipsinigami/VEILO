@@ -1,0 +1,1615 @@
+//! Types and implementation for Testnet consensus parameters
+
+use std::{
+    collections::BTreeMap,
+    fmt,
+    sync::{Arc, LazyLock},
+};
+
+use crate::{
+    amount::{Amount, NonNegative, MAX_MONEY},
+    block::{self, Height, HeightDiff},
+    parameters::{
+        checkpoint::list::{CheckpointList, TESTNET_CHECKPOINT_LIST},
+        constants::{magics, SLOW_START_INTERVAL, SLOW_START_SHIFT},
+        network::error::ParametersBuilderError,
+        network_upgrade::TESTNET_ACTIVATION_HEIGHTS,
+        subsidy::{
+            constants::mainnet,
+            constants::testnet,
+            constants::{
+                BLOSSOM_POW_TARGET_SPACING_RATIO, FUNDING_STREAM_RECEIVER_DENOMINATOR,
+                NU7_POW_TARGET_SPACING_RATIO, POST_BLOSSOM_HALVING_INTERVAL,
+                PRE_BLOSSOM_HALVING_INTERVAL,
+            },
+            cumulative_scheduled_issuance_zatoshis, funding_stream_address_period,
+            height_for_halving, nsm_reissuance_crossing_height, nu7_funding_stream_end_height,
+            scheduled_block_subsidy, FundingStreamReceiver, FundingStreamRecipient, FundingStreams,
+            ParameterSubsidy, LN2_SCALED, TESTNET_INITIAL_NSM_VALUE_BALANCE,
+        },
+        Network, NetworkKind, NetworkUpgrade,
+    },
+    transparent,
+    work::difficulty::{ExpandedDifficulty, U256},
+};
+
+use super::magic::Magic;
+
+/// Reserved network names that should not be allowed for configured Testnets.
+pub const RESERVED_NETWORK_NAMES: [&str; 6] = [
+    "Mainnet",
+    "Testnet",
+    "Regtest",
+    "MainnetKind",
+    "TestnetKind",
+    "RegtestKind",
+];
+
+/// Maximum length for a configured network name.
+pub const MAX_NETWORK_NAME_LENGTH: usize = 30;
+
+/// Maximum length for a configured human-readable prefix.
+pub const MAX_HRP_LENGTH: usize = 30;
+
+/// The block hash of the Regtest genesis block, `zcash-cli -regtest getblockhash 0`
+const REGTEST_GENESIS_HASH: &str =
+    "029f11d80ef9765602235e1bc9727e3eb6ba20839319f761fee920d63401e327";
+
+/// The block hash of the Testnet genesis block, `zcash-cli -testnet getblockhash 0`
+const TESTNET_GENESIS_HASH: &str =
+    "05a60a92d99d85997cce3b87616c089f6124d7342af37106edc76126334a2c38";
+
+/// The halving height interval in the regtest is 6 hours.
+/// [zcashd regtest halving interval](https://github.com/zcash/zcash/blob/v5.10.0/src/consensus/params.h#L252)
+const PRE_BLOSSOM_REGTEST_HALVING_INTERVAL: HeightDiff = 144;
+
+/// Configurable funding stream recipient for configured Testnets.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ConfiguredFundingStreamRecipient {
+    /// Funding stream receiver, see [`FundingStreams::recipients`] for more details.
+    pub receiver: FundingStreamReceiver,
+    /// The numerator for each funding stream receiver category, see [`FundingStreamRecipient::numerator`] for more details.
+    pub numerator: u64,
+    /// Addresses for the funding stream recipient, see [`FundingStreamRecipient::addresses`] for more details.
+    pub addresses: Option<Vec<String>>,
+}
+
+impl ConfiguredFundingStreamRecipient {
+    /// Creates a new [`ConfiguredFundingStreamRecipient`] with the provided receiver and default
+    /// values for other fields.
+    pub fn new_for(receiver: FundingStreamReceiver) -> Self {
+        use FundingStreamReceiver::*;
+        match receiver {
+            Ecc => Self {
+                receiver: Ecc,
+                numerator: 7,
+                addresses: Some(
+                    testnet::FUNDING_STREAM_ECC_ADDRESSES
+                        .map(ToString::to_string)
+                        .to_vec(),
+                ),
+            },
+            ZcashFoundation => Self {
+                receiver: ZcashFoundation,
+                numerator: 5,
+                addresses: Some(
+                    testnet::FUNDING_STREAM_ZF_ADDRESSES
+                        .map(ToString::to_string)
+                        .to_vec(),
+                ),
+            },
+            MajorGrants => Self {
+                receiver: MajorGrants,
+                numerator: 8,
+                addresses: Some(
+                    testnet::FUNDING_STREAM_MG_ADDRESSES
+                        .map(ToString::to_string)
+                        .to_vec(),
+                ),
+            },
+            Deferred => Self {
+                receiver,
+                numerator: 0,
+                addresses: None,
+            },
+        }
+    }
+
+    /// Converts a [`ConfiguredFundingStreamRecipient`] to a [`FundingStreamReceiver`] and [`FundingStreamRecipient`].
+    pub fn into_recipient(self) -> (FundingStreamReceiver, FundingStreamRecipient) {
+        (
+            self.receiver,
+            FundingStreamRecipient::new(self.numerator, self.addresses.unwrap_or_default()),
+        )
+    }
+}
+
+/// Configurable one-time lockbox disbursement recipients for configured Testnets.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ConfiguredLockboxDisbursement {
+    /// The expected address for the lockbox disbursement output
+    pub address: String,
+    /// The expected disbursement amount
+    pub amount: Amount<NonNegative>,
+}
+
+/// Configurable funding streams for configured Testnets.
+#[derive(Serialize, Deserialize, Clone, Default, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ConfiguredFundingStreams {
+    /// Start and end height for funding streams see [`FundingStreams::height_range`] for more details.
+    pub height_range: Option<std::ops::Range<Height>>,
+    /// Funding stream recipients, see [`FundingStreams::recipients`] for more details.
+    pub recipients: Option<Vec<ConfiguredFundingStreamRecipient>>,
+}
+
+impl From<&FundingStreams> for ConfiguredFundingStreams {
+    fn from(value: &FundingStreams) -> Self {
+        Self {
+            height_range: Some(value.height_range().clone()),
+            recipients: Some(
+                value
+                    .recipients()
+                    .iter()
+                    .map(|(receiver, recipient)| ConfiguredFundingStreamRecipient {
+                        receiver: *receiver,
+                        numerator: recipient.numerator(),
+                        addresses: Some(
+                            recipient
+                                .addresses()
+                                .iter()
+                                .map(ToString::to_string)
+                                .collect(),
+                        ),
+                    })
+                    .collect(),
+            ),
+        }
+    }
+}
+
+impl From<(transparent::Address, Amount<NonNegative>)> for ConfiguredLockboxDisbursement {
+    fn from((address, amount): (transparent::Address, Amount<NonNegative>)) -> Self {
+        Self {
+            address: address.to_string(),
+            amount,
+        }
+    }
+}
+
+impl From<&BTreeMap<Height, NetworkUpgrade>> for ConfiguredActivationHeights {
+    fn from(activation_heights: &BTreeMap<Height, NetworkUpgrade>) -> Self {
+        let mut configured_activation_heights = ConfiguredActivationHeights::default();
+
+        // The map coalesces upgrades at the same height. Restore implicit activations before
+        // Regtest's `for_regtest` fills missing early upgrades from its defaults.
+        let mut configured = activation_heights.iter().peekable();
+        for network_upgrade in NetworkUpgrade::iter() {
+            while configured
+                .peek()
+                .is_some_and(|(_, upgrade)| **upgrade < network_upgrade)
+            {
+                configured.next();
+            }
+            let Some((height, _)) = configured.peek() else {
+                break;
+            };
+            let field = match network_upgrade {
+                NetworkUpgrade::BeforeOverwinter => {
+                    &mut configured_activation_heights.before_overwinter
+                }
+                NetworkUpgrade::Overwinter => &mut configured_activation_heights.overwinter,
+                NetworkUpgrade::Sapling => &mut configured_activation_heights.sapling,
+                NetworkUpgrade::Blossom => &mut configured_activation_heights.blossom,
+                NetworkUpgrade::Heartwood => &mut configured_activation_heights.heartwood,
+                NetworkUpgrade::Canopy => &mut configured_activation_heights.canopy,
+                NetworkUpgrade::Nu5 => &mut configured_activation_heights.nu5,
+                NetworkUpgrade::Nu6 => &mut configured_activation_heights.nu6,
+                NetworkUpgrade::Nu6_1 => &mut configured_activation_heights.nu6_1,
+                NetworkUpgrade::Nu6_2 => &mut configured_activation_heights.nu6_2,
+                NetworkUpgrade::Nu6_3 => &mut configured_activation_heights.nu6_3,
+                NetworkUpgrade::Nu7 => &mut configured_activation_heights.nu7,
+                #[cfg(zcash_unstable = "zfuture")]
+                NetworkUpgrade::ZFuture => &mut configured_activation_heights.zfuture,
+                NetworkUpgrade::Genesis => continue,
+            };
+
+            *field = Some(height.0)
+        }
+
+        configured_activation_heights
+    }
+}
+
+impl From<BTreeMap<Height, NetworkUpgrade>> for ConfiguredActivationHeights {
+    fn from(value: BTreeMap<Height, NetworkUpgrade>) -> Self {
+        Self::from(&value)
+    }
+}
+
+impl ConfiguredFundingStreams {
+    /// Converts a [`ConfiguredFundingStreams`] to a [`FundingStreams`], using the provided default values
+    /// if `height_range` or `recipients` are None.
+    ///
+    /// # Panics
+    ///
+    /// If a default is required but was not passed
+    fn convert_with_default(
+        self,
+        default_funding_streams: Option<FundingStreams>,
+    ) -> FundingStreams {
+        let height_range = self.height_range.unwrap_or_else(|| {
+            default_funding_streams
+                .as_ref()
+                .expect("default required")
+                .height_range()
+                .clone()
+        });
+
+        let recipients = self
+            .recipients
+            .map(|recipients| {
+                recipients
+                    .into_iter()
+                    .map(ConfiguredFundingStreamRecipient::into_recipient)
+                    .collect()
+            })
+            .unwrap_or_else(|| {
+                default_funding_streams
+                    .as_ref()
+                    .expect("default required")
+                    .recipients()
+                    .clone()
+            });
+
+        assert!(
+            height_range.start <= height_range.end,
+            "funding stream end height must be above start height"
+        );
+
+        let funding_streams = FundingStreams::new(height_range.clone(), recipients);
+
+        // check that sum of receiver numerators is valid.
+
+        let sum_numerators: u64 = funding_streams
+            .recipients()
+            .values()
+            .map(|r| r.numerator())
+            .sum();
+
+        assert!(
+            sum_numerators <= FUNDING_STREAM_RECEIVER_DENOMINATOR,
+            "sum of funding stream numerators must not be \
+         greater than denominator of {FUNDING_STREAM_RECEIVER_DENOMINATOR}"
+        );
+
+        funding_streams
+    }
+
+    /// Converts the [`ConfiguredFundingStreams`] to a [`FundingStreams`].
+    ///
+    /// # Panics
+    ///
+    /// If `height_range` is None.
+    pub fn into_funding_streams_unchecked(self) -> FundingStreams {
+        let height_range = self.height_range.expect("must have height range");
+        let recipients = self
+            .recipients
+            .into_iter()
+            .flat_map(|recipients| {
+                recipients
+                    .into_iter()
+                    .map(ConfiguredFundingStreamRecipient::into_recipient)
+            })
+            .collect();
+
+        FundingStreams::new(height_range, recipients)
+    }
+}
+
+/// Returns the number of funding stream address periods there are for the provided network and height range.
+fn num_funding_stream_addresses_required_for_height_range(
+    height_range: &std::ops::Range<Height>,
+    network: &Network,
+) -> usize {
+    if height_range.is_empty() {
+        return 0;
+    }
+
+    // The two periods are only meaningful relative to each other, so the subtraction is done in
+    // signed arithmetic: see `funding_stream_address_period()`.
+    let last_period = funding_stream_address_period(
+        height_range
+            .end
+            .previous()
+            .expect("end height must be above start height and genesis height"),
+        network,
+    );
+    let first_period = funding_stream_address_period(height_range.start, network);
+
+    usize::try_from(1 + last_period - first_period)
+        .expect("a height range's last address period is at or after its first")
+}
+
+/// Checks that the provided [`FundingStreams`] has sufficient recipient addresses for the
+/// funding stream address period of the provided [`Network`].
+fn check_funding_stream_address_period(
+    funding_streams: &FundingStreams,
+    network: &Network,
+) -> Result<(), ParametersBuilderError> {
+    let expected_min_num_addresses = num_funding_stream_addresses_required_for_height_range(
+        funding_streams.height_range(),
+        network,
+    );
+
+    for (&receiver, recipient) in funding_streams.recipients() {
+        if receiver == FundingStreamReceiver::Deferred {
+            // The `Deferred` receiver doesn't need any addresses.
+            continue;
+        }
+
+        let num_addresses = recipient.addresses().len();
+        if num_addresses < expected_min_num_addresses {
+            return Err(ParametersBuilderError::InsufficientFundingStreamAddresses {
+                receiver,
+                required: expected_min_num_addresses,
+                provided: num_addresses,
+            });
+        }
+
+        for address in recipient.addresses() {
+            assert_eq!(
+                address.network_kind(),
+                NetworkKind::Testnet,
+                "configured funding stream addresses must be for Testnet"
+            );
+        }
+    }
+
+    Ok(())
+}
+
+/// Checks effective funding stream ranges and recipient types for Testnet and Regtest.
+fn check_funding_streams(funding_streams: &[FundingStreams]) -> Result<(), ParametersBuilderError> {
+    for (index, streams) in funding_streams.iter().enumerate() {
+        let range = streams.height_range();
+        if !range.is_empty() {
+            // Pairwise checks avoid allocating for these small startup-only schedules;
+            // sort ranges if configurations grow to contain many funding stream groups.
+            if let Some(previous) = funding_streams[..index].iter().find(|previous| {
+                let previous = previous.height_range();
+                !previous.is_empty() && previous.start < range.end && range.start < previous.end
+            }) {
+                return Err(ParametersBuilderError::OverlappingFundingStreamRanges {
+                    first: previous.height_range().clone(),
+                    second: range.clone(),
+                });
+            }
+        }
+
+        for (&receiver, recipient) in streams.recipients() {
+            if receiver == FundingStreamReceiver::Deferred {
+                continue;
+            }
+            if let Some(&address) = recipient
+                .addresses()
+                .iter()
+                .find(|address| matches!(address, transparent::Address::Tex { .. }))
+            {
+                return Err(ParametersBuilderError::UnsupportedFundingStreamAddress {
+                    receiver,
+                    address,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Configurable activation heights for Regtest and configured Testnets.
+#[derive(Serialize, Deserialize, Default, Clone, Copy, Debug, PartialEq)]
+#[serde(rename_all = "PascalCase", deny_unknown_fields)]
+pub struct ConfiguredActivationHeights {
+    /// Activation height for `BeforeOverwinter` network upgrade.
+    pub before_overwinter: Option<u32>,
+    /// Activation height for `Overwinter` network upgrade.
+    pub overwinter: Option<u32>,
+    /// Activation height for `Sapling` network upgrade.
+    pub sapling: Option<u32>,
+    /// Activation height for `Blossom` network upgrade.
+    pub blossom: Option<u32>,
+    /// Activation height for `Heartwood` network upgrade.
+    pub heartwood: Option<u32>,
+    /// Activation height for `Canopy` network upgrade.
+    pub canopy: Option<u32>,
+    /// Activation height for `NU5` network upgrade.
+    #[serde(rename = "NU5")]
+    pub nu5: Option<u32>,
+    /// Activation height for `NU6` network upgrade.
+    #[serde(rename = "NU6")]
+    pub nu6: Option<u32>,
+    /// Activation height for `NU6.1` network upgrade.
+    #[serde(rename = "NU6.1")]
+    pub nu6_1: Option<u32>,
+    /// Activation height for `NU6.2` network upgrade.
+    #[serde(rename = "NU6.2")]
+    pub nu6_2: Option<u32>,
+    /// Activation height for `NU6.3` (Ironwood) network upgrade.
+    #[serde(rename = "NU6.3")]
+    pub nu6_3: Option<u32>,
+    /// Activation height for `NU7` network upgrade.
+    #[serde(rename = "NU7")]
+    pub nu7: Option<u32>,
+    /// Activation height for `ZFuture` network upgrade.
+    #[serde(rename = "ZFuture")]
+    #[cfg(zcash_unstable = "zfuture")]
+    pub zfuture: Option<u32>,
+}
+
+impl ConfiguredActivationHeights {
+    /// Converts a [`ConfiguredActivationHeights`] to one that uses the default values for Regtest where
+    /// no activation heights are specified.
+    fn for_regtest(self) -> Self {
+        let Self {
+            before_overwinter,
+            overwinter,
+            sapling,
+            blossom,
+            heartwood,
+            canopy,
+            nu5,
+            nu6,
+            nu6_1,
+            nu6_2,
+            nu6_3,
+            nu7,
+            #[cfg(zcash_unstable = "zfuture")]
+            zfuture,
+        } = self;
+
+        let overwinter = overwinter.or(before_overwinter).or(Some(1));
+        let sapling = sapling.or(overwinter);
+        let blossom = blossom.or(sapling);
+        let heartwood = heartwood.or(blossom);
+        let canopy = canopy.or(heartwood);
+
+        Self {
+            before_overwinter,
+            overwinter,
+            sapling,
+            blossom,
+            heartwood,
+            canopy,
+            nu5,
+            nu6,
+            nu6_1,
+            nu6_2,
+            nu6_3,
+            nu7,
+            #[cfg(zcash_unstable = "zfuture")]
+            zfuture,
+        }
+    }
+}
+
+/// Configurable checkpoints, either a path to a checkpoints file, a "default" keyword to indicate
+/// that Zebra should use the default Testnet checkpoints, or a list of block heights and hashes.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum ConfiguredCheckpoints {
+    /// A boolean indicating whether Zebra should use the default Testnet checkpoints.
+    Default(bool),
+    /// A path to a checkpoints file to be used as Zebra's checkpoints.
+    Path(std::path::PathBuf),
+    /// Directly configured block heights and hashes to be used as Zebra's checkpoints.
+    HeightsAndHashes(Vec<(block::Height, block::Hash)>),
+}
+
+impl Default for ConfiguredCheckpoints {
+    fn default() -> Self {
+        Self::Default(false)
+    }
+}
+
+impl From<Arc<CheckpointList>> for ConfiguredCheckpoints {
+    fn from(value: Arc<CheckpointList>) -> Self {
+        Self::HeightsAndHashes(value.iter_cloned().collect())
+    }
+}
+
+impl From<bool> for ConfiguredCheckpoints {
+    fn from(value: bool) -> Self {
+        Self::Default(value)
+    }
+}
+
+/// Builder for the [`Parameters`] struct.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ParametersBuilder {
+    /// The name of this network to be used by the `Display` trait impl.
+    network_name: String,
+    /// The network magic, acts as an identifier for the network.
+    network_magic: Magic,
+    /// The genesis block hash
+    genesis_hash: block::Hash,
+    /// The network upgrade activation heights for this network, see [`Parameters::activation_heights`] for more details.
+    activation_heights: BTreeMap<Height, NetworkUpgrade>,
+    /// Slow start interval for this network
+    slow_start_interval: Height,
+    /// Funding streams for this network
+    funding_streams: Vec<FundingStreams>,
+    /// A flag indicating whether to allow changes to fields that affect
+    /// the funding stream address period.
+    should_lock_funding_stream_address_period: bool,
+    /// Target difficulty limit for this network
+    target_difficulty_limit: ExpandedDifficulty,
+    /// A flag for disabling proof-of-work checks when Zebra is validating blocks
+    disable_pow: bool,
+    /// Whether to allow transactions with transparent outputs to spend coinbase outputs,
+    /// similar to `fCoinbaseMustBeShielded` in zcashd.
+    should_allow_unshielded_coinbase_spends: bool,
+    /// The NSM value balance seeded at NU7 activation under the halving-preserving issuance ZIP
+    initial_nsm_value_balance: Option<Amount<NonNegative>>,
+    /// An explicit override for the calculated ZIP 237 reissuance height.
+    nsm_reissuance_height: Option<Height>,
+    /// The pre-Blossom halving interval for this network
+    pre_blossom_halving_interval: HeightDiff,
+    /// The post-Blossom halving interval for this network
+    post_blossom_halving_interval: HeightDiff,
+    /// Expected one-time lockbox disbursement outputs in NU6.1 activation block coinbase for this network
+    lockbox_disbursements: Vec<(String, Amount<NonNegative>)>,
+    /// Checkpointed block hashes and heights for this network.
+    checkpoints: Arc<CheckpointList>,
+    /// Height at which the soft-fork to temporarily disable Orchard in transactions activates
+    temporary_orchard_disabling_soft_fork_height: Option<Height>,
+}
+
+impl Default for ParametersBuilder {
+    /// Creates a builder with public Testnet parameters except its name.
+    fn default() -> Self {
+        let mut builder = Self {
+            network_name: "UnknownTestnet".to_string(),
+            network_magic: magics::TESTNET,
+            // # Correctness
+            //
+            // `Genesis` network upgrade activation height must always be 0
+            activation_heights: TESTNET_ACTIVATION_HEIGHTS.iter().cloned().collect(),
+            genesis_hash: TESTNET_GENESIS_HASH
+                .parse()
+                .expect("hard-coded hash parses"),
+            slow_start_interval: SLOW_START_INTERVAL,
+            // Testnet PoWLimit is defined as `2^251 - 1` on page 73 of the protocol specification:
+            // <https://zips.z.cash/protocol/protocol.pdf>
+            //
+            // The PoWLimit must be converted into a compact representation before using it
+            // to perform difficulty filter checks (see https://github.com/zcash/zips/pull/417).
+            target_difficulty_limit: ExpandedDifficulty::from((U256::one() << 251) - 1)
+                .to_compact()
+                .to_expanded()
+                .expect("difficulty limits are valid expanded values"),
+            disable_pow: false,
+            funding_streams: testnet::FUNDING_STREAMS.clone(),
+            should_lock_funding_stream_address_period: false,
+            pre_blossom_halving_interval: PRE_BLOSSOM_HALVING_INTERVAL,
+            post_blossom_halving_interval: POST_BLOSSOM_HALVING_INTERVAL,
+            should_allow_unshielded_coinbase_spends: false,
+            initial_nsm_value_balance: None,
+            nsm_reissuance_height: None,
+            lockbox_disbursements: testnet::NU6_1_LOCKBOX_DISBURSEMENTS
+                .iter()
+                .map(|(addr, amount)| (addr.to_string(), *amount))
+                .collect(),
+            checkpoints: TESTNET_CHECKPOINT_LIST.clone(),
+            temporary_orchard_disabling_soft_fork_height: Some(
+                super::TESTNET_TEMPORARY_ORCHARD_DISABLING_SOFT_FORK_HEIGHT,
+            ),
+        };
+        builder.update_funding_stream_end_height();
+        builder
+    }
+}
+
+impl ParametersBuilder {
+    /// Sets the network name to be used in the [`Parameters`] being built.
+    pub fn with_network_name(
+        mut self,
+        network_name: impl fmt::Display,
+    ) -> Result<Self, ParametersBuilderError> {
+        let network_name = network_name.to_string();
+
+        if RESERVED_NETWORK_NAMES
+            .iter()
+            .any(|reserved| network_name.eq_ignore_ascii_case(reserved))
+        {
+            return Err(ParametersBuilderError::ReservedNetworkName {
+                network_name,
+                reserved_names: RESERVED_NETWORK_NAMES.to_vec(),
+            });
+        }
+
+        if network_name.len() > MAX_NETWORK_NAME_LENGTH {
+            return Err(ParametersBuilderError::NetworkNameTooLong {
+                network_name,
+                max_length: MAX_NETWORK_NAME_LENGTH,
+            });
+        }
+
+        if !network_name
+            .chars()
+            .all(|x| x.is_alphanumeric() || x == '_')
+        {
+            return Err(ParametersBuilderError::InvalidCharacter);
+        }
+
+        self.network_name = network_name;
+        Ok(self)
+    }
+
+    /// Sets the network name to be used in the [`Parameters`] being built.
+    pub fn with_network_magic(
+        mut self,
+        network_magic: Magic,
+    ) -> Result<Self, ParametersBuilderError> {
+        if [magics::MAINNET, magics::REGTEST]
+            .into_iter()
+            .any(|reserved_magic| network_magic == reserved_magic)
+        {
+            return Err(ParametersBuilderError::ReservedNetworkMagic);
+        }
+
+        self.network_magic = network_magic;
+
+        Ok(self)
+    }
+
+    /// Parses the hex-encoded block hash and sets it as the genesis hash in the [`Parameters`] being built.
+    pub fn with_genesis_hash(
+        mut self,
+        genesis_hash: impl fmt::Display,
+    ) -> Result<Self, ParametersBuilderError> {
+        self.genesis_hash = genesis_hash
+            .to_string()
+            .parse()
+            .map_err(|_| ParametersBuilderError::InvalidGenesisHash)?;
+        Ok(self)
+    }
+
+    /// Checks that the provided network upgrade activation heights are in the correct order, then
+    /// sets them as the new network upgrade activation heights.
+    pub fn with_activation_heights(
+        mut self,
+        ConfiguredActivationHeights {
+            before_overwinter,
+            overwinter,
+            sapling,
+            blossom,
+            heartwood,
+            canopy,
+            nu5,
+            nu6,
+            nu6_1,
+            nu6_2,
+            nu6_3,
+            nu7,
+            #[cfg(zcash_unstable = "zfuture")]
+            zfuture,
+        }: ConfiguredActivationHeights,
+    ) -> Result<Self, ParametersBuilderError> {
+        if self.should_lock_funding_stream_address_period {
+            return Err(ParametersBuilderError::LockFundingStreams);
+        }
+
+        // # Correctness
+        //
+        // These must be in order so that later network upgrades overwrite prior ones
+        // if multiple network upgrades are configured with the same activation height.
+        let activation_heights: BTreeMap<_, _> = {
+            let activation_heights = [
+                before_overwinter,
+                overwinter,
+                sapling,
+                blossom,
+                heartwood,
+                canopy,
+                nu5,
+                nu6,
+                nu6_1,
+                nu6_2,
+                nu6_3,
+                nu7,
+                #[cfg(zcash_unstable = "zfuture")]
+                zfuture,
+            ]
+            .into_iter()
+            .zip(NetworkUpgrade::iter().skip(1))
+            .filter_map(|(height, upgrade)| height.map(|height| (height, upgrade)));
+
+            let mut previous_height = Height::MIN;
+            activation_heights
+                .map(|(h, nu)| {
+                    let height = Height::try_from(h)
+                        .map_err(|_| ParametersBuilderError::InvalidActivationHeight)?;
+                    if height == Height::MIN {
+                        return Err(ParametersBuilderError::InvalidHeightZero);
+                    }
+                    if height < previous_height {
+                        return Err(ParametersBuilderError::OutOfOrderUpgrades);
+                    }
+                    previous_height = height;
+                    Ok((height, nu))
+                })
+                .collect::<Result<BTreeMap<_, _>, _>>()?
+        };
+
+        // # Correctness
+        //
+        // Height(0) must be reserved for the `NetworkUpgrade::Genesis`.
+        self.activation_heights.split_off(&Height(1));
+        self.activation_heights.extend(activation_heights);
+        self.update_funding_stream_end_height();
+
+        Ok(self)
+    }
+
+    /// Sets the slow start interval to be used in the [`Parameters`] being built.
+    pub fn with_slow_start_interval(mut self, slow_start_interval: Height) -> Self {
+        self.slow_start_interval = slow_start_interval;
+        self
+    }
+
+    /// Sets funding streams to be used in the [`Parameters`] being built.
+    ///
+    /// # Panics
+    ///
+    /// If `funding_streams` is longer than `testnet::FUNDING_STREAMS`, and one
+    /// of the extra streams requires a default value.
+    pub fn with_funding_streams(mut self, funding_streams: Vec<ConfiguredFundingStreams>) -> Self {
+        let nu7 = self.nu7_activation_height();
+        self.funding_streams = funding_streams
+            .into_iter()
+            .enumerate()
+            .map(|(idx, streams)| {
+                let mut default_streams = testnet::FUNDING_STREAMS.get(idx).cloned();
+                if idx + 1 == testnet::FUNDING_STREAMS.len() {
+                    if let Some(streams) = &mut default_streams {
+                        streams.set_end_height(nu7_funding_stream_end_height(
+                            testnet::POST_NU6_1_FUNDING_STREAM_END_HEIGHT,
+                            nu7,
+                        ));
+                    }
+                }
+                streams.convert_with_default(default_streams)
+            })
+            .collect();
+        self.should_lock_funding_stream_address_period = true;
+        self
+    }
+
+    /// Clears funding streams from the [`Parameters`] being built.
+    pub fn clear_funding_streams(mut self) -> Self {
+        self.funding_streams = vec![];
+        self
+    }
+
+    /// Extends the configured funding streams to have as many recipients as are required for their
+    /// height ranges by repeating the recipients that have been configured.
+    ///
+    /// This should be called after configuring the desired network upgrade activation heights.
+    /// Validates the subsidy schedule as in [`Self::to_network`] before extending addresses.
+    pub fn extend_funding_streams(mut self) -> Result<Self, ParametersBuilderError> {
+        self.check_nsm_reissuance_height()?;
+        let network = self.to_network_unchecked();
+        self.validate_halving_interval(&network)?;
+
+        for funding_streams in &mut self.funding_streams {
+            funding_streams.extend_recipient_addresses(
+                num_funding_stream_addresses_required_for_height_range(
+                    funding_streams.height_range(),
+                    &network,
+                ),
+            );
+        }
+
+        Ok(self)
+    }
+
+    /// Sets the target difficulty limit to be used in the [`Parameters`] being built.
+    // TODO: Accept a hex-encoded String instead?
+    pub fn with_target_difficulty_limit(
+        mut self,
+        target_difficulty_limit: impl Into<ExpandedDifficulty>,
+    ) -> Result<Self, ParametersBuilderError> {
+        self.target_difficulty_limit = target_difficulty_limit
+            .into()
+            .to_compact()
+            .to_expanded()
+            .ok_or(ParametersBuilderError::InvaildDifficultyLimits)?;
+        Ok(self)
+    }
+
+    /// Sets the `disable_pow` flag to be used in the [`Parameters`] being built.
+    pub fn with_disable_pow(mut self, disable_pow: bool) -> Self {
+        self.disable_pow = disable_pow;
+        self
+    }
+
+    /// Sets whether coinbase outputs may be spent into transparent outputs in the
+    /// [`Parameters`] being built (the inverse of zcashd's `-regtestshieldcoinbase`).
+    pub fn with_unshielded_coinbase_spends(
+        mut self,
+        should_allow_unshielded_coinbase_spends: bool,
+    ) -> Self {
+        self.should_allow_unshielded_coinbase_spends = should_allow_unshielded_coinbase_spends;
+        self
+    }
+
+    /// Sets the NSM value balance seeded at NU7 activation under the halving-preserving issuance
+    /// ZIP, `INITIAL_NSM_VALUE_BALANCE`.
+    ///
+    /// Testnets using public Testnet magic inherit its historical reserve. Other Testnets and
+    /// Regtest default to zero. An explicit value overrides either default.
+    pub fn with_initial_nsm_value_balance(
+        mut self,
+        initial_nsm_value_balance: Amount<NonNegative>,
+    ) -> Self {
+        self.initial_nsm_value_balance = Some(initial_nsm_value_balance);
+        self
+    }
+
+    /// Sets the height from which the halving-preserving issuance ZIP reissues the NSM value
+    /// balance, `DEPLOYMENT_BLOCK_HEIGHT`.
+    ///
+    /// Without an override, ZIP 237 derives the height from the scheduled-issuance crossover.
+    /// An explicit override for accelerated testing must not precede NU7 activation.
+    pub fn with_nsm_reissuance_height(mut self, height: Height) -> Self {
+        self.nsm_reissuance_height = Some(height);
+        self
+    }
+
+    /// Checks that any configured NSM reissuance height is at or after the NU7 activation
+    /// height.
+    fn check_nsm_reissuance_height(&self) -> Result<(), ParametersBuilderError> {
+        let Some(deployment_height) = self.nsm_reissuance_height else {
+            return Ok(());
+        };
+        if deployment_height == Height::MIN || deployment_height > Height::MAX {
+            return Err(ParametersBuilderError::InvalidActivationHeight);
+        }
+
+        let nu7_activation_height = self.nu7_activation_height();
+
+        if nu7_activation_height.is_none_or(|nu7_height| deployment_height < nu7_height) {
+            return Err(ParametersBuilderError::NsmReissuanceHeightBeforeNu7);
+        }
+
+        Ok(())
+    }
+
+    /// Sets the pre- and post-Blossom halving intervals for the [`Parameters`] being built.
+    ///
+    /// Returns an error if the interval is nonpositive, exceeds [`Height::MAX`], or funding
+    /// streams already lock it. [`Self::to_network`] and [`Self::extend_funding_streams`] also
+    /// validate the full subsidy schedule, funding stream address period, and NSM coefficient.
+    pub fn with_halving_interval(
+        mut self,
+        pre_blossom_halving_interval: HeightDiff,
+    ) -> Result<Self, ParametersBuilderError> {
+        if self.should_lock_funding_stream_address_period {
+            return Err(ParametersBuilderError::HalvingIntervalAfterFundingStreams);
+        }
+        if pre_blossom_halving_interval <= 0
+            || pre_blossom_halving_interval > HeightDiff::from(Height::MAX.0)
+        {
+            return Err(ParametersBuilderError::InvalidHalvingInterval);
+        }
+
+        self.pre_blossom_halving_interval = pre_blossom_halving_interval;
+        self.post_blossom_halving_interval =
+            self.pre_blossom_halving_interval * (BLOSSOM_POW_TARGET_SPACING_RATIO as HeightDiff);
+        Ok(self)
+    }
+
+    /// Sets the expected one-time lockbox disbursement outputs for this network
+    pub fn with_lockbox_disbursements(
+        mut self,
+        lockbox_disbursements: Vec<ConfiguredLockboxDisbursement>,
+    ) -> Self {
+        self.lockbox_disbursements = lockbox_disbursements
+            .into_iter()
+            .map(|ConfiguredLockboxDisbursement { address, amount }| (address, amount))
+            .collect();
+        self
+    }
+
+    /// Sets the checkpoints for the network as the provided [`ConfiguredCheckpoints`].
+    pub fn with_checkpoints(
+        mut self,
+        checkpoints: impl Into<ConfiguredCheckpoints>,
+    ) -> Result<Self, ParametersBuilderError> {
+        self.checkpoints = match checkpoints.into() {
+            ConfiguredCheckpoints::Default(true) => TESTNET_CHECKPOINT_LIST.clone(),
+            ConfiguredCheckpoints::Default(false) => Arc::new(
+                CheckpointList::from_list([(block::Height(0), self.genesis_hash)])
+                    .map_err(|_| ParametersBuilderError::FailedToParseDefaultCheckpoint)?,
+            ),
+            ConfiguredCheckpoints::Path(path_buf) => {
+                let Ok(raw_checkpoints_str) = std::fs::read_to_string(&path_buf) else {
+                    return Err(ParametersBuilderError::FailedToReadCheckpointFile {
+                        path_buf: path_buf.clone(),
+                    });
+                };
+
+                Arc::new(
+                    raw_checkpoints_str
+                        .parse::<CheckpointList>()
+                        .map_err(|err| ParametersBuilderError::FailedToParseCheckpointFile {
+                            path_buf: path_buf.clone(),
+                            err: err.to_string(),
+                        })?,
+                )
+            }
+            ConfiguredCheckpoints::HeightsAndHashes(items) => Arc::new(
+                CheckpointList::from_list(items)
+                    .map_err(|_| ParametersBuilderError::InvalidCustomCheckpoints)?,
+            ),
+        };
+
+        Ok(self)
+    }
+
+    /// Clears checkpoints from the [`Parameters`] being built, keeping the genesis checkpoint.
+    pub fn clear_checkpoints(self) -> Result<Self, ParametersBuilderError> {
+        self.with_checkpoints(ConfiguredCheckpoints::Default(false))
+    }
+
+    /// Sets the height for this network at which the soft fork that temporarily disables
+    /// Orchard transactions will activate.
+    pub fn with_temporary_orchard_disabling_soft_fork_height(mut self, height: Height) -> Self {
+        self.temporary_orchard_disabling_soft_fork_height = Some(height);
+        self
+    }
+
+    /// Disables the soft fork that would temporarily disable Orchard transactions.
+    pub fn disable_temporary_orchard_disabling_soft_fork(mut self) -> Self {
+        self.temporary_orchard_disabling_soft_fork_height = None;
+        self
+    }
+
+    fn validate_halving_interval(&self, network: &Network) -> Result<(), ParametersBuilderError> {
+        if height_for_halving(1, network).is_none()
+            || (!self.funding_streams.is_empty()
+                && network.funding_stream_address_change_interval() == 0)
+            || (self.nu7_activation_height().is_some()
+                && u64::try_from(network.post_nu7_halving_interval())
+                    .map_or(true, |interval| interval == 0 || interval > LN2_SCALED))
+        {
+            return Err(ParametersBuilderError::InvalidHalvingInterval);
+        }
+
+        // The signed halving numerator is smallest at the slow-start shift. Reject schedules
+        // where it would produce a negative index, rather than panicking in the subsidy helpers.
+        let shift = network.slow_start_shift();
+        let blossom = NetworkUpgrade::Blossom
+            .activation_height(network)
+            .ok_or(ParametersBuilderError::InvalidHalvingInterval)?;
+        let mut numerator = 0;
+        let mut interval = self.pre_blossom_halving_interval;
+        if shift >= blossom {
+            numerator = blossom - shift;
+            interval = self.post_blossom_halving_interval;
+        }
+        if let Some(nu7) = NetworkUpgrade::Nu7
+            .activation_height(network)
+            .filter(|&height| height <= shift)
+        {
+            let ratio = HeightDiff::from(NU7_POW_TARGET_SPACING_RATIO);
+            numerator = numerator * ratio + (nu7 - shift) * (ratio - 1);
+            interval = network.post_nu7_halving_interval();
+        }
+        if numerator / interval < 0 {
+            return Err(ParametersBuilderError::InvalidHalvingInterval);
+        }
+
+        let mut total = cumulative_scheduled_issuance_zatoshis(Height::MAX, network)
+            .map_err(|_| ParametersBuilderError::InvalidSubsidySchedule)?;
+        // Genesis is unspendable and is excluded from the monetary cap.
+        let genesis = scheduled_block_subsidy(Height::MIN, network)
+            .map_err(|_| ParametersBuilderError::InvalidSubsidySchedule)?;
+        total = total
+            .checked_sub(u64::from(genesis))
+            .ok_or(ParametersBuilderError::InvalidSubsidySchedule)?;
+        if i128::from(total) > i128::from(MAX_MONEY) {
+            return Err(ParametersBuilderError::InvalidSubsidySchedule);
+        }
+        Ok(())
+    }
+
+    /// Returns NU7's configured height without constructing or cloning a network.
+    fn nu7_activation_height(&self) -> Option<Height> {
+        self.activation_heights
+            .iter()
+            .find_map(|(&height, &upgrade)| (upgrade == NetworkUpgrade::Nu7).then_some(height))
+    }
+
+    /// Keeps inherited ranges normalized before compatibility checks and serialization.
+    /// Called only before explicit funding streams lock the activation schedule.
+    fn update_funding_stream_end_height(&mut self) {
+        let nu7 = self.nu7_activation_height();
+        if let Some(streams) = self.funding_streams.last_mut() {
+            streams.set_end_height(nu7_funding_stream_end_height(
+                testnet::POST_NU6_1_FUNDING_STREAM_END_HEIGHT,
+                nu7,
+            ));
+        }
+    }
+
+    /// Converts the builder to a [`Parameters`] struct
+    fn finish(self) -> Parameters {
+        let Self {
+            network_name,
+            network_magic,
+            genesis_hash,
+            activation_heights,
+            slow_start_interval,
+            funding_streams,
+            should_lock_funding_stream_address_period: _,
+            target_difficulty_limit,
+            disable_pow,
+            should_allow_unshielded_coinbase_spends,
+            initial_nsm_value_balance,
+            nsm_reissuance_height,
+            pre_blossom_halving_interval,
+            post_blossom_halving_interval,
+            lockbox_disbursements,
+            checkpoints,
+            temporary_orchard_disabling_soft_fork_height,
+        } = self;
+        Parameters {
+            network_name,
+            network_magic,
+            genesis_hash,
+            activation_heights,
+            slow_start_interval,
+            slow_start_shift: Height(slow_start_interval.0 / 2),
+            funding_streams,
+            target_difficulty_limit,
+            disable_pow,
+            should_allow_unshielded_coinbase_spends,
+            initial_nsm_value_balance,
+            nsm_reissuance_height,
+            calculated_reissuance_height: None,
+            pre_blossom_halving_interval,
+            post_blossom_halving_interval,
+            lockbox_disbursements,
+            checkpoints,
+            temporary_orchard_disabling_soft_fork_height,
+        }
+    }
+
+    /// Converts the builder to a configured [`Network::Testnet`]
+    fn to_network_unchecked(&self) -> Network {
+        Network::new_configured_testnet(self.clone().finish())
+    }
+
+    /// Checks subsidy, funding stream, and checkpoint parameters and builds a configured Testnet.
+    ///
+    /// Scheduled issuance through [`Height::MAX`] must not exceed [`MAX_MONEY`]. The scheduled
+    /// genesis subsidy is excluded. Reissuance also requires a post-NU7 halving interval no
+    /// greater than [`LN2_SCALED`],
+    /// so its integer coefficient is nonzero.
+    /// Effective funding stream ranges must not overlap, and non-deferred recipients must use
+    /// P2SH or P2PKH addresses.
+    pub fn to_network(self) -> Result<Network, ParametersBuilderError> {
+        self.check_nsm_reissuance_height()?;
+        let mut network = self.to_network_unchecked();
+        self.validate_halving_interval(&network)?;
+
+        // Final check that the configured funding streams will be valid for these Testnet parameters.
+        check_funding_streams(&self.funding_streams)?;
+        for fs in &self.funding_streams {
+            check_funding_stream_address_period(fs, &network)?;
+        }
+
+        // Final check that the configured checkpoints are valid for this network.
+        if network.checkpoint_list().hash(Height(0)) != Some(network.genesis_hash()) {
+            return Err(ParametersBuilderError::CheckpointGenesisMismatch);
+        }
+        if network.checkpoint_list().max_height() < network.mandatory_checkpoint_height() {
+            return Err(ParametersBuilderError::InsufficientCheckpointCoverage);
+        }
+
+        Parameters::calculate_reissuance_height(&mut network)?;
+
+        Ok(network)
+    }
+
+    /// Returns true if these [`Parameters`] should be compatible with the default Testnet parameters.
+    pub fn is_compatible_with_default_parameters(&self) -> bool {
+        let Self {
+            network_name: _,
+            network_magic,
+            genesis_hash,
+            activation_heights,
+            slow_start_interval,
+            funding_streams,
+            should_lock_funding_stream_address_period: _,
+            target_difficulty_limit,
+            disable_pow,
+            should_allow_unshielded_coinbase_spends,
+            initial_nsm_value_balance: _,
+            nsm_reissuance_height,
+            pre_blossom_halving_interval,
+            post_blossom_halving_interval,
+            lockbox_disbursements,
+            checkpoints: _,
+            temporary_orchard_disabling_soft_fork_height,
+        } = Self::default();
+
+        let nsm_parameters_match = self
+            .initial_nsm_value_balance
+            .map_or(TESTNET_INITIAL_NSM_VALUE_BALANCE, u64::from)
+            == TESTNET_INITIAL_NSM_VALUE_BALANCE
+            && self.nsm_reissuance_height == nsm_reissuance_height;
+
+        self.activation_heights == activation_heights
+            && self.network_magic == network_magic
+            && self.genesis_hash == genesis_hash
+            && self.slow_start_interval == slow_start_interval
+            && self.funding_streams == funding_streams
+            && self.target_difficulty_limit == target_difficulty_limit
+            && self.disable_pow == disable_pow
+            && self.should_allow_unshielded_coinbase_spends
+                == should_allow_unshielded_coinbase_spends
+            && nsm_parameters_match
+            && self.pre_blossom_halving_interval == pre_blossom_halving_interval
+            && self.post_blossom_halving_interval == post_blossom_halving_interval
+            && self.lockbox_disbursements == lockbox_disbursements
+            && self.temporary_orchard_disabling_soft_fork_height
+                == temporary_orchard_disabling_soft_fork_height
+    }
+}
+
+/// A struct of parameters for configuring Regtest in Zebra.
+#[derive(Debug, Default, Clone)]
+pub struct RegtestParameters {
+    /// The configured network upgrade activation heights to use on Regtest
+    pub activation_heights: ConfiguredActivationHeights,
+    /// Configured funding streams
+    pub funding_streams: Option<Vec<ConfiguredFundingStreams>>,
+    /// Expected one-time lockbox disbursement outputs in NU6.1 activation block coinbase for Regtest
+    pub lockbox_disbursements: Option<Vec<ConfiguredLockboxDisbursement>>,
+    /// Configured checkpointed block heights and hashes.
+    pub checkpoints: Option<ConfiguredCheckpoints>,
+    /// Whether funding stream addresses should be repeated to fill all required funding stream periods.
+    pub extend_funding_stream_addresses_as_required: Option<bool>,
+    /// Whether to allow coinbase spends to have transparent outputs (inverse of
+    /// zcashd's `-regtestshieldcoinbase`).
+    pub should_allow_unshielded_coinbase_spends: Option<bool>,
+    /// The NSM value balance seeded at NU7 activation under the halving-preserving issuance ZIP.
+    pub initial_nsm_value_balance: Option<Amount<NonNegative>>,
+    /// The height from which the halving-preserving issuance ZIP reissues the NSM value balance.
+    /// If unset, ZIP 237 derives the height; short custom schedules may have no crossing.
+    pub nsm_reissuance_height: Option<Height>,
+}
+
+impl From<ConfiguredActivationHeights> for RegtestParameters {
+    fn from(value: ConfiguredActivationHeights) -> Self {
+        Self {
+            activation_heights: value,
+            ..Default::default()
+        }
+    }
+}
+
+/// Network consensus parameters for test networks such as Regtest and the default Testnet.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Parameters {
+    /// The name of this network to be used by the `Display` trait impl.
+    network_name: String,
+    /// The network magic, acts as an identifier for the network.
+    network_magic: Magic,
+    /// The genesis block hash
+    genesis_hash: block::Hash,
+    /// The network upgrade activation heights for this network.
+    activation_heights: BTreeMap<Height, NetworkUpgrade>,
+    /// Slow start interval for this network
+    slow_start_interval: Height,
+    /// Slow start shift for this network, always half the slow start interval
+    slow_start_shift: Height,
+    /// Funding streams for this network
+    funding_streams: Vec<FundingStreams>,
+    /// Target difficulty limit for this network
+    target_difficulty_limit: ExpandedDifficulty,
+    /// A flag for disabling proof-of-work checks when Zebra is validating blocks
+    disable_pow: bool,
+    /// Whether to allow transactions with transparent outputs to spend coinbase outputs,
+    /// similar to `fCoinbaseMustBeShielded` in zcashd.
+    should_allow_unshielded_coinbase_spends: bool,
+    /// The NSM value balance seeded at NU7 activation under the halving-preserving issuance ZIP
+    initial_nsm_value_balance: Option<Amount<NonNegative>>,
+    /// An explicit override for the calculated ZIP 237 reissuance height.
+    nsm_reissuance_height: Option<Height>,
+    /// The immutable scheduled-issuance crossover, calculated once when parameters are built.
+    calculated_reissuance_height: Option<Height>,
+    /// Pre-Blossom halving interval for this network
+    pre_blossom_halving_interval: HeightDiff,
+    /// Post-Blossom halving interval for this network
+    post_blossom_halving_interval: HeightDiff,
+    /// Expected one-time lockbox disbursement outputs in NU6.1 activation block coinbase for this network
+    lockbox_disbursements: Vec<(String, Amount<NonNegative>)>,
+    /// List of checkpointed block heights and hashes
+    checkpoints: Arc<CheckpointList>,
+    /// Height at which the soft-fork to temporarily disable Orchard in transactions activates
+    temporary_orchard_disabling_soft_fork_height: Option<Height>,
+}
+
+/// Build directly from the uncached builder so initialization never re-enters this cache.
+static DEFAULT_TESTNET_PARAMETERS: LazyLock<Parameters> = LazyLock::new(|| {
+    Parameters {
+        network_name: "Testnet".to_string(),
+        ..Parameters::build().finish()
+    }
+    .with_calculated_reissuance_height()
+    .expect("the hard-coded public Testnet subsidy schedule is valid")
+});
+
+impl Default for Parameters {
+    /// Returns an instance of the default public testnet [`Parameters`].
+    fn default() -> Self {
+        DEFAULT_TESTNET_PARAMETERS.clone()
+    }
+}
+
+impl Parameters {
+    /// Creates a new [`ParametersBuilder`].
+    pub fn build() -> ParametersBuilder {
+        ParametersBuilder::default()
+    }
+
+    /// Accepts a [`ConfiguredActivationHeights`].
+    ///
+    /// Creates an instance of [`Parameters`] with `Regtest` values.
+    /// Returns an error for overlapping effective funding stream ranges or unsupported
+    /// non-deferred recipient addresses, as on configured Testnets.
+    pub fn new_regtest(
+        RegtestParameters {
+            activation_heights,
+            funding_streams,
+            lockbox_disbursements,
+            checkpoints,
+            extend_funding_stream_addresses_as_required,
+            should_allow_unshielded_coinbase_spends,
+            initial_nsm_value_balance,
+            nsm_reissuance_height,
+        }: RegtestParameters,
+    ) -> Result<Self, ParametersBuilderError> {
+        let mut parameters = Self::build()
+            .with_genesis_hash(REGTEST_GENESIS_HASH)?
+            // This value is chosen to match zcashd, see: <https://github.com/zcash/zcash/blob/master/src/chainparams.cpp#L654>
+            .with_target_difficulty_limit(U256::from_big_endian(&[0x0f; 32]))?
+            .with_disable_pow(true)
+            .with_unshielded_coinbase_spends(
+                should_allow_unshielded_coinbase_spends.unwrap_or(true),
+            )
+            .with_slow_start_interval(Height::MIN)
+            // Like the default Testnet activation heights stripped below, the default Testnet's
+            // temporary Orchard-disabling soft fork does not apply to Regtest.
+            .disable_temporary_orchard_disabling_soft_fork()
+            // Removes default Testnet activation heights if not configured,
+            // most network upgrades are disabled by default for Regtest in zcashd
+            .with_activation_heights(activation_heights.for_regtest())?
+            .with_halving_interval(PRE_BLOSSOM_REGTEST_HALVING_INTERVAL)?
+            .with_funding_streams(funding_streams.unwrap_or_default())
+            .with_lockbox_disbursements(lockbox_disbursements.unwrap_or_default())
+            .with_checkpoints(checkpoints.unwrap_or_default())?;
+
+        if Some(true) == extend_funding_stream_addresses_as_required {
+            parameters = parameters.extend_funding_streams()?;
+        }
+        if let Some(initial_nsm_value_balance) = initial_nsm_value_balance {
+            parameters = parameters.with_initial_nsm_value_balance(initial_nsm_value_balance);
+        }
+
+        if let Some(nsm_reissuance_height) = nsm_reissuance_height {
+            parameters = parameters.with_nsm_reissuance_height(nsm_reissuance_height);
+        }
+
+        parameters.check_nsm_reissuance_height()?;
+        check_funding_streams(&parameters.funding_streams)?;
+
+        Self {
+            network_name: "Regtest".to_string(),
+            network_magic: magics::REGTEST,
+            ..parameters.finish()
+        }
+        .with_calculated_reissuance_height()
+    }
+
+    /// Returns true if the instance of [`Parameters`] represents the default public Testnet.
+    pub fn is_default_testnet(&self) -> bool {
+        self == &*DEFAULT_TESTNET_PARAMETERS
+    }
+
+    /// Returns true if the instance of [`Parameters`] represents Regtest.
+    pub fn is_regtest(&self) -> bool {
+        if self.network_magic != magics::REGTEST {
+            return false;
+        }
+
+        let Self {
+            network_name,
+            // Already checked network magic above
+            network_magic: _,
+            genesis_hash,
+            // Activation heights are configurable on Regtest
+            activation_heights: _,
+            slow_start_interval,
+            slow_start_shift,
+            funding_streams: _,
+            target_difficulty_limit,
+            disable_pow,
+            // Configurable on Regtest
+            should_allow_unshielded_coinbase_spends: _,
+            // Configurable on Regtest
+            initial_nsm_value_balance: _,
+            // Configurable on Regtest
+            nsm_reissuance_height: _,
+            calculated_reissuance_height: _,
+            pre_blossom_halving_interval,
+            post_blossom_halving_interval,
+            lockbox_disbursements: _,
+            checkpoints: _,
+            temporary_orchard_disabling_soft_fork_height: _,
+        } = Self::new_regtest(Default::default()).expect("default regtest parameters are valid");
+
+        self.network_name == network_name
+            && self.genesis_hash == genesis_hash
+            && self.slow_start_interval == slow_start_interval
+            && self.slow_start_shift == slow_start_shift
+            && self.target_difficulty_limit == target_difficulty_limit
+            && self.disable_pow == disable_pow
+            && self.pre_blossom_halving_interval == pre_blossom_halving_interval
+            && self.post_blossom_halving_interval == post_blossom_halving_interval
+    }
+
+    /// Returns the network name
+    pub fn network_name(&self) -> &str {
+        &self.network_name
+    }
+
+    /// Returns the network magic
+    pub fn network_magic(&self) -> Magic {
+        self.network_magic
+    }
+
+    /// Returns the genesis hash
+    pub fn genesis_hash(&self) -> block::Hash {
+        self.genesis_hash
+    }
+
+    /// Returns the network upgrade activation heights
+    pub fn activation_heights(&self) -> &BTreeMap<Height, NetworkUpgrade> {
+        &self.activation_heights
+    }
+
+    /// Returns slow start interval for this network
+    pub fn slow_start_interval(&self) -> Height {
+        self.slow_start_interval
+    }
+
+    /// Returns slow start shift for this network
+    pub fn slow_start_shift(&self) -> Height {
+        self.slow_start_shift
+    }
+
+    /// Returns funding streams for this network.
+    pub fn funding_streams(&self) -> &Vec<FundingStreams> {
+        &self.funding_streams
+    }
+
+    /// Returns the target difficulty limit for this network
+    pub fn target_difficulty_limit(&self) -> ExpandedDifficulty {
+        self.target_difficulty_limit
+    }
+
+    /// Returns true if proof-of-work validation should be disabled for this network
+    pub fn disable_pow(&self) -> bool {
+        self.disable_pow
+    }
+
+    /// Returns true if this network should allow transactions with transparent outputs
+    /// that spend coinbase outputs.
+    pub fn should_allow_unshielded_coinbase_spends(&self) -> bool {
+        self.should_allow_unshielded_coinbase_spends
+    }
+
+    /// Returns `INITIAL_NSM_VALUE_BALANCE` for this network: the NSM value balance seeded at NU7
+    /// activation under the halving-preserving issuance ZIP.
+    ///
+    /// Omitted settings use the public Testnet seed for public Testnet magic, otherwise zero.
+    pub fn initial_nsm_value_balance(&self) -> Amount<NonNegative> {
+        self.initial_nsm_value_balance.unwrap_or_else(|| {
+            if self.network_magic == magics::TESTNET {
+                Amount::try_from(TESTNET_INITIAL_NSM_VALUE_BALANCE)
+                    .expect("the measured Testnet seed is a valid amount")
+            } else {
+                Amount::zero()
+            }
+        })
+    }
+
+    /// Returns the explicit seed override, preserving omission during configuration round trips.
+    pub fn configured_initial_nsm_value_balance(&self) -> Option<Amount<NonNegative>> {
+        self.initial_nsm_value_balance
+    }
+
+    fn with_calculated_reissuance_height(self) -> Result<Self, ParametersBuilderError> {
+        if self.nsm_reissuance_height.is_some()
+            || !self
+                .activation_heights
+                .values()
+                .any(|upgrade| *upgrade == NetworkUpgrade::Nu7)
+        {
+            return Ok(self);
+        }
+        let mut network = Network::Testnet(Arc::new(self));
+        Self::calculate_reissuance_height(&mut network)?;
+        let Network::Testnet(parameters) = network else {
+            unreachable!("this method just constructed a Testnet")
+        };
+        Ok(Arc::unwrap_or_clone(parameters))
+    }
+
+    fn calculate_reissuance_height(network: &mut Network) -> Result<(), ParametersBuilderError> {
+        let Network::Testnet(parameters) = network else {
+            unreachable!("only Testnet parameter construction calls this method")
+        };
+        if parameters.nsm_reissuance_height.is_some() {
+            return Ok(());
+        }
+        let height = nsm_reissuance_crossing_height(network)
+            .map_err(|_| ParametersBuilderError::InvalidSubsidySchedule)?;
+        let Network::Testnet(parameters) = network else {
+            unreachable!("calculating the height does not change the network variant")
+        };
+        Arc::get_mut(parameters)
+            .expect("parameter construction has not shared its Arc")
+            .calculated_reissuance_height = height;
+        Ok(())
+    }
+
+    /// Returns `DEPLOYMENT_BLOCK_HEIGHT` for this network: the height from which the
+    /// halving-preserving issuance ZIP reissues the NSM value balance.
+    ///
+    /// Uses the explicit testing override when supplied, otherwise the calculated ZIP 237
+    /// crossover. No NU7 activation or no crossing before the fourth halving returns `None`.
+    pub fn nsm_reissuance_height(&self) -> Option<Height> {
+        self.nsm_reissuance_height
+            .or(self.calculated_reissuance_height)
+    }
+
+    /// Returns the explicitly configured NSM reissuance height, excluding the calculated ZIP 237
+    /// crossover.
+    ///
+    /// Configuration serialization uses this to preserve an omitted height on round trips.
+    pub fn configured_nsm_reissuance_height(&self) -> Option<Height> {
+        self.nsm_reissuance_height
+    }
+
+    /// Returns the pre-Blossom halving interval for this network
+    pub fn pre_blossom_halving_interval(&self) -> HeightDiff {
+        self.pre_blossom_halving_interval
+    }
+
+    /// Returns the post-Blossom halving interval for this network
+    pub fn post_blossom_halving_interval(&self) -> HeightDiff {
+        self.post_blossom_halving_interval
+    }
+
+    /// Returns the expected total value of the sum of all NU6.1 one-time lockbox disbursement output values for this network.
+    pub fn lockbox_disbursement_total_amount(&self) -> Amount<NonNegative> {
+        self.lockbox_disbursements()
+            .into_iter()
+            .map(|(_addr, amount)| amount)
+            .reduce(|a, b| (a + b).expect("sum of configured amounts should be valid"))
+            .unwrap_or_default()
+    }
+
+    /// Returns the expected NU6.1 lockbox disbursement outputs for this network.
+    pub fn lockbox_disbursements(&self) -> Vec<(transparent::Address, Amount<NonNegative>)> {
+        self.lockbox_disbursements
+            .iter()
+            .map(|(addr, amount)| {
+                (
+                    addr.parse().expect("hard-coded address must deserialize"),
+                    *amount,
+                )
+            })
+            .collect()
+    }
+
+    /// Returns the checkpoints for this network.
+    pub fn checkpoints(&self) -> Arc<CheckpointList> {
+        self.checkpoints.clone()
+    }
+
+    /// Returns the height at which the soft-fork to temporarily disable Orchard in
+    /// transactions activates.
+    pub fn temporary_orchard_disabling_soft_fork_height(&self) -> Option<Height> {
+        self.temporary_orchard_disabling_soft_fork_height
+    }
+}
+
+impl Network {
+    /// Returns the parameters of this network if it is a Testnet.
+    pub fn parameters(&self) -> Option<Arc<Parameters>> {
+        if let Self::Testnet(parameters) = self {
+            Some(parameters.clone())
+        } else {
+            None
+        }
+    }
+
+    /// Returns true if proof-of-work validation should be disabled for this network
+    pub fn disable_pow(&self) -> bool {
+        if let Self::Testnet(params) = self {
+            params.disable_pow()
+        } else {
+            false
+        }
+    }
+
+    /// Returns slow start interval for this network
+    pub fn slow_start_interval(&self) -> Height {
+        if let Self::Testnet(params) = self {
+            params.slow_start_interval()
+        } else {
+            SLOW_START_INTERVAL
+        }
+    }
+
+    /// Returns slow start shift for this network
+    pub fn slow_start_shift(&self) -> Height {
+        if let Self::Testnet(params) = self {
+            params.slow_start_shift()
+        } else {
+            SLOW_START_SHIFT
+        }
+    }
+
+    /// Returns post-Canopy funding streams for this network at the provided height
+    pub fn funding_streams(&self, height: Height) -> Option<&FundingStreams> {
+        self.all_funding_streams()
+            .iter()
+            .find(|&streams| streams.height_range().contains(&height))
+    }
+
+    /// Returns post-Canopy funding streams for this network at the provided height
+    pub fn all_funding_streams(&self) -> &Vec<FundingStreams> {
+        if let Self::Testnet(params) = self {
+            params.funding_streams()
+        } else {
+            &mainnet::FUNDING_STREAMS
+        }
+    }
+
+    /// Returns true if this network should allow transactions with transparent outputs
+    /// that spend coinbase outputs.
+    pub fn should_allow_unshielded_coinbase_spends(&self) -> bool {
+        if let Self::Testnet(params) = self {
+            params.should_allow_unshielded_coinbase_spends()
+        } else {
+            false
+        }
+    }
+
+    /// Returns the list of founders' reward addresses for this network.
+    pub fn founder_address_list(&self) -> &[&str] {
+        match self {
+            Network::Mainnet => &mainnet::FOUNDER_ADDRESS_LIST,
+            Network::Testnet(_) => &testnet::FOUNDER_ADDRESS_LIST,
+        }
+    }
+}

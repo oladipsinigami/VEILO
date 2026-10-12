@@ -1,4 +1,3 @@
-#!/usr/bin/env bash
 # Zebra regtest configuration for Veilo.
 #
 # Why regtest and not public Testnet:
@@ -7,52 +6,52 @@
 #   * Public Testnet explorer endpoints tested on Oct 12 were unreachable, and
 #     lightwalletd only serves ZIP-307 *compact* outputs (52 bytes, no memo), so it
 #     cannot supply the full 580-byte encCiphertexts the auditor needs.
-#   * Regtest SKIPS Proof-of-Work validation entirely and can activate NU6.3 and NU7
-#     at height 1, so the demo exercises the real target network rules (Ironwood
-#     pool, enableCrossAddress = 0, 25-second spacing) deterministically and offline.
+#   * Regtest SKIPS Proof-of-Work validation entirely and can activate network
+#     upgrades at low heights, so the demo exercises the real target network rules
+#     (Ironwood pool, enableCrossAddress = 0) deterministically and offline.
 #
-# Copy the miner address out of ops/keys/miner_address.txt before first use, or run
-# `bash ops/fund.sh` which regenerates it.
+# Verified against zebrad's own error message (Oct 12): the complete set of valid
+# keys under network.testnet_parameters.activation_heights is
+#   Overwinter, Sapling, Blossom, Heartwood, Canopy, NU5, NU6_1, NU6_2, NU6_3, NU7
+# There is NO `NU6`. Heights are strictly increasing because Zebra validates the
+# order, so NU6.3 lands at 9 and NU7 at 10 rather than all at height 1.
 
 [network]
 network = "Regtest"
 
-# Activate every upgrade we care about at height 1 so the regtest chain follows
-# NU6.3 + NU7 rules from genesis. Height 0 is reserved for the Genesis upgrade.
 [network.testnet_parameters.activation_heights]
-NU5 = 1
-NU6 = 1
-Canopy = 1
-NU6_1 = 1
-NU6_2 = 1
-NU6_3 = 1
-NU7 = 1
+Overwinter = 1
+Sapling = 2
+Blossom = 3
+Heartwood = 4
+Canopy = 5
+NU5 = 6
+NU6_1 = 7
+NU6_2 = 8
+NU6_3 = 9
+NU7 = 10
 
-# Enough value in the NSM balance that ZIP-237's reissuance rules do not trip over
-# an empty balance on a chain this short.
-[network.testnet_parameters]
-initial_nsm_value_balance = 100000000
-nsm_reissuance_height = 1000000000
-
-# Non-persistent chain state. Every restart is a clean chain, which is exactly what
-# a deterministic demo wants.
+# Non-persistent chain state. Every restart is a clean chain, which is what a
+# deterministic demo wants.
 [state]
 ephemeral = true
 
-# Needed for send_raw_transaction so non-coinbase txs get mined onto the chain.
+# Needed so send_raw_transaction can mine non-coinbase transactions onto the chain.
 [rpc]
 listen_addr = "0.0.0.0:8232"
 enable_zmq = false
 
-# Filled in by ops/fund.sh from z_getnewaddress.
+# `internal_miner` belongs INSIDE [mining]. There is no top-level [internal_miner]
+# table, and the config is deny_unknown_fields, so an unknown table makes zebrad
+# refuse to start.
 #
-# `internal_miner` lives HERE, inside [mining] -- there is no top-level
-# [internal_miner] table, and the config uses deny_unknown_fields, so an unknown
-# table makes zebrad refuse to start.
+# It is also gated on the cargo feature `internal-miner`: in
+# zebra-rpc/src/config/mining.rs, `is_internal_miner_enabled` is
+# #[cfg(feature = "internal-miner")], so the method does not exist at all in a build
+# without the feature and `internal_miner = true` is silently inert. The prebuilt
+# release binaries are NOT built with it -- see ops/build-zebra.sh.
 #
-# It is also gated on the cargo feature `internal-miner`: `is_internal_miner_enabled`
-# does not exist at all in a build without it. The prebuilt release binaries are NOT
-# built with that feature, so ops/build-zebra.sh compiles one from source.
+# ops/fund.sh overwrites miner_address with one from z_getnewaddress.
 [mining]
 miner_address = "REPLACE_ME"
 internal_miner = true
