@@ -40,10 +40,17 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+    # Manual only. When this ran on every push it checked out a different SHA than
+    # the other jobs (ref: main resolved elsewhere), so it reported "nothing to
+    # commit" while cargo fmt --check in the rust job failed on the same tree.
+    # Running it on demand, then letting the push it makes trigger the normal
+    # checks, converges without a race.
+    if: github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.event.repository.default_branch }}
+          token: ${{ secrets.GITHUB_TOKEN }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -105,7 +112,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - run: cargo fmt --check
+      # --all matters: the root Cargo.toml is a virtual workspace, so without it
+      # cargo fmt does not reach the member crates.
+      - run: cargo fmt --all --check
 
       - run: cargo clippy --all-targets -- -D warnings
 
@@ -199,10 +208,14 @@ jobs:
           # `is_internal_miner_enabled` is #[cfg(feature = "internal-miner")], so
           # without it the method does not exist and `internal_miner = true` is
           # silently inert. Build from source instead.
+          # `-p zebrad` is required: without it cargo reports
+          #   "multiple packages with binaries found: zebra-fuzz-targets,
+          #    zebra-utils, zebrad"
+          # because --git searches the entire workspace for any Cargo.toml.
           echo "Building zebrad ${ZEBRA_REV} with --features internal-miner (cold build, be patient)"
           CARGO_TARGET_DIR="$PWD/target-zebra" cargo install --locked \
             --git https://github.com/ZcashFoundation/zebra \
-            --rev "$ZEBRA_REV" --bin zebrad \
+            --rev "$ZEBRA_REV" -p zebrad --bin zebrad \
             --no-default-features \
             --features internal-miner,release_max_level_info \
             --root "$PWD/.zebra-install"
