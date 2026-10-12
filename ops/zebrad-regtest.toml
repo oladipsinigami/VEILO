@@ -52,6 +52,13 @@ ephemeral = true
 # Needed so send_raw_transaction can mine non-coinbase transactions onto the chain.
 [rpc]
 listen_addr = "0.0.0.0:8232"
+# REQUIRED. zebrad serves two different RPC surfaces:
+#   * listen_addr          -> wallet/chain methods (z_getnewaddress, z_getbalance, generate)
+#   * indexer_listen_addr  -> indexer methods (getblockcount, getblockhash, getbestblockhash)
+# Without indexer_listen_addr zebrad logs "configure an indexer_listen_addr to start
+# the indexer RPC server" and getblockcount simply does not exist on 8232, so every
+# height probe returns "method not found" no matter how it is authenticated.
+indexer_listen_addr = "127.0.0.1:8233"
 
 # `internal_miner` belongs INSIDE [mining]; there is no top-level [internal_miner]
 # table. It is also gated on the cargo feature `internal-miner`: in

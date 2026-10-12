@@ -199,9 +199,13 @@ jobs:
       # used here: it runs before zebra-src exists, so it keys off this repo's own
       # Cargo.lock and caches veilo artifacts under the name "zebra" -- which never
       # restored anything and made every run pay the ~11.5 minute cold build.
+      #
+      # restore/save are used explicitly rather than actions/cache, because the
+      # implicit save only runs when the whole job succeeds. fund.sh fails often
+      # enough that this would mean paying the cold build on every real iteration.
       - name: restore cached zebrad
         id: zebrad-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: bin/zebrad
           key: zebrad-c1f84f3ee92a577ebaeaf5753a5f3cf261428e8e-${{ runner.os }}
@@ -241,6 +245,13 @@ jobs:
           mkdir -p bin
           cp zebra-src/target/release/zebrad bin/zebrad
 
+      - name: save zebrad cache
+        if: steps.zebrad-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: bin/zebrad
+          key: zebrad-c1f84f3ee92a577ebaeaf5753a5f3cf261428e8e-${{ runner.os }}
+
       - name: verify zebrad can mine
         run: |
           set -euo pipefail
@@ -268,16 +279,18 @@ jobs:
           echo "--- zebrad log tail ---"
           tail -40 ops/zebrad.log 2>/dev/null || true
           echo "--- chain state ---"
-          # Same cookie auth as ops/fund.sh, otherwise this reports 0 even on success.
+          # getblockcount is an INDEXER method (indexer_listen_addr) and needs the
+          # auth cookie; the main rpc port 8232 does not serve it at all.
+          unset $(env | grep -oE '^ZEBRA_[A-Z0-9_]+' || true)
           AUTH=()
           if [ -s "$HOME/.cache/zebra/.cookie" ]; then
             AUTH=(-u "cookie:$(cat "$HOME/.cache/zebra/.cookie")")
           fi
-          curl -s --max-time 10 "${AUTH[@]}" http://127.0.0.1:8232 \
+          curl -s --max-time 10 "${AUTH[@]}" http://127.0.0.1:8233 \
             -H 'content-type: application/json' \
             --data '{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}' || true
           echo
-          H=$(curl -s --max-time 10 "${AUTH[@]}" http://127.0.0.1:8232 \
+          H=$(curl -s --max-time 10 "${AUTH[@]}" http://127.0.0.1:8233 \
             -H 'content-type: application/json' \
             --data '{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}' \
             | python3 -c 'import sys,json; print(json.load(sys.stdin).get("result",0))' 2>/dev/null || echo 0)

@@ -21,7 +21,9 @@ echo "== zebrad =="
 if [ -f bin/zebrad ]; then ok "bin/zebrad present"; else bad "bin/zebrad MISSING (bash ops/bootstrap.sh)"; fi
 if [ -f ops/zebrad.pid ] && kill -0 "$(cat ops/zebrad.pid)" 2>/dev/null; then
   ok "running (pid $(cat ops/zebrad.pid))"
-  H=$(curl -s --max-time 3 http://127.0.0.1:${ZEBO_RPC_PORT:-8232} \
+  # getblockcount is an indexer method -> indexer_listen_addr, and cookie auth applies.
+  A=(); [ -s "$HOME/.cache/zebra/.cookie" ] && A=(-u "cookie:$(cat "$HOME/.cache/zebra/.cookie")")
+  H=$(curl -s --max-time 3 "${A[@]}" "http://127.0.0.1:${ZEBO_INDEXER_PORT:-8233}" \
         -H 'content-type: application/json' \
         --data '{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}' \
       | python3 -c 'import sys,json; print(json.load(sys.stdin).get("result","?"))' 2>/dev/null || echo "?")

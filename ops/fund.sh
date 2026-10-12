@@ -15,6 +15,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 RPC="http://127.0.0.1:${ZEBO_RPC_PORT:-8232}"
+IDX="http://127.0.0.1:${ZEBO_INDEXER_PORT:-8233}"
 CONFIG="ops/zebrad-regtest.toml"
 mkdir -p ops/keys
 
@@ -27,17 +28,26 @@ cookie_file() {
 
 # Cookie auth is mandatory: with enable_cookie_auth = true (the default) zebrad
 # rejects unauthenticated JSON-RPC, so every call here must carry the cookie.
+auth_args() {
+  if cf=$(cookie_file); then printf '%s' "-u cookie:$(cat "$cf")"; fi
+}
+
+# Wallet/chain methods live on the main rpc port...
 rpc() {
-  local auth=()
-  if cf=$(cookie_file); then auth=(-u "cookie:$(cat "$cf")"); fi
-  curl -s --max-time 15 "${auth[@]}" "$RPC" -H 'content-type: application/json' --data "$1"
+  local a=(); [ -n "$(auth_args)" ] && a=(-u "cookie:$(cat "$(cookie_file)")")
+  curl -s --max-time 15 "${a[@]}" "$RPC" -H 'content-type: application/json' --data "$1"
+}
+# ...but getblockcount is an indexer method and only exists on indexer_listen_addr.
+idx() {
+  local a=(); [ -n "$(auth_args)" ] && a=(-u "cookie:$(cat "$(cookie_file)")")
+  curl -s --max-time 15 "${a[@]}" "$IDX" -H 'content-type: application/json' --data "$1"
 }
 height() {
-  rpc '{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}' \
-  | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("result",0))' 2>/dev/null || echo 0
+  idx '{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}' \
+    | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("result",0))' 2>/dev/null || echo 0
 }
 alive() {
-  rpc '{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}' | grep -q '"result"'
+  idx '{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}' | grep -q '"result"'
 }
 stop_ze() { [ -f ops/zebrad.pid ] && kill "$(cat ops/zebrad.pid)" 2>/dev/null || true; sleep 1; }
 

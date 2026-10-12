@@ -4,6 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 RPC_PORT="${ZEBO_RPC_PORT:-8232}"
+IDX_PORT="${ZEBO_INDEXER_PORT:-8233}"
 LOG="ops/zebrad.log"
 PIDFILE="ops/zebrad.pid"
 CONFIG="ops/zebrad-regtest.toml"
@@ -28,7 +29,7 @@ fi
 # starts and serves RPC, which is what fund.sh needs in order to call
 # z_getnewaddress. Refusing to start without it deadlocked fund.sh <-> up.sh.
 
-echo "starting zebrad (regtest), rpc on 127.0.0.1:${RPC_PORT}"
+echo "starting zebrad (regtest), rpc on 127.0.0.1:${RPC_PORT}, indexer on 127.0.0.1:${IDX_PORT}"
 nohup "./$ZEBRA_BIN" -c "$CONFIG" > "$LOG" 2>&1 &
 echo $! > "$PIDFILE"
 
@@ -42,15 +43,16 @@ cookie_file() {
   return 1
 }
 
-rpc_auth=()
-if cf=$(cookie_file); then rpc_auth=(-u "cookie:$(cat "$cf")"); fi
-
+LAST_RESP=""
 for i in $(seq 1 60); do
-  if cf=$(cookie_file); then rpc_auth=(-u "cookie:$(cat "$cf")"); fi
-  if curl -s --max-time 2 "${rpc_auth[@]}" "http://127.0.0.1:${RPC_PORT}" \
+  auth=()
+  if cf=$(cookie_file); then auth=(-u "cookie:$(cat "$cf")"); fi
+  # getblockcount is an INDEXER method. It only exists on indexer_listen_addr,
+  # never on the main rpc listen_addr.
+  LAST_RESP=$(curl -s --max-time 2 "${auth[@]}" "http://127.0.0.1:${IDX_PORT}" \
        -H 'content-type: application/json' \
-       --data '{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}' \
-       | grep -q '"result"'; then
+       --data '{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}' 2>/dev/null || true)
+  if printf '%s' "$LAST_RESP" | grep -q '"result"'; then
     echo "zebrad is up after ${i}s"
     ./"$ZEBRA_BIN" --version 2>/dev/null || true
     exit 0
@@ -58,7 +60,9 @@ for i in $(seq 1 60); do
   sleep 1
 done
 
-echo "zebrad did not come up in 60s. Last log lines:" >&2
-echo "(if the log says 'Opened RPC endpoint', the node is fine and this is an auth problem)" >&2
+echo "zebrad did not come up in 60s." >&2
+echo "last indexer RPC response: ${LAST_RESP:-<empty>}" >&2
+echo "(an empty response means the indexer port is not listening -- check that" >&2
+echo " indexer_listen_addr is set in $CONFIG and matches port ${IDX_PORT})" >&2
 tail -30 "$LOG" >&2
 exit 1
