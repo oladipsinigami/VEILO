@@ -39,22 +39,34 @@ script does that for you.
   `lightwalletd` only serves ZIP-307 **compact** outputs (52 bytes, no memo), so it cannot
   supply the full 580-byte `encCiphertext` the auditor needs.
 
-## Known trap: `NU6` is not a real network upgrade
+## Known traps (each one cost a round trip to a remote codespace)
 
-Zebra's config is `deny_unknown_fields`, so a single wrong key makes zebrad refuse to
-start with:
+Zebra's config is `deny_unknown_fields`: **one wrong key makes the node refuse to start.**
+Three mistakes we made, recorded so they are not repeated:
 
+1. **Dotted release names.** `NU6.1`, `NU6.2`, `NU6.3` use **dots**, not underscores.
+   Writing `NU6_1` is rejected. Dotted keys must be quoted in TOML.
+2. **`NU6` is a real upgrade** — the sequence is `NU5`, `NU6`, `NU6.1`, `NU6.2`,
+   `NU6.3`, `NU7`. (We initially removed `NU6` on the false belief it did not exist.)
+3. **`enable_zmq` is not a valid `[rpc]` key** in 7.0.0-rc.0. Valid keys are
+   `listen_addr`, `indexer_listen_addr`, `lightwalletd_listen_addr`,
+   `parallel_cpu_threads`, `debug_force_finished_sync`, `cookie_dir`,
+   `enable_cookie_auth`, `max_response_body_size`.
+
+Also: activation heights must be **strictly increasing**, and >= 1 (height 0 is reserved
+for Genesis).
+
+**Check the config before touching the codespace:**
+
+```bash
+node ops/validate-config.mjs
 ```
-Configuration error: unknown field `NU6`, expected one of `Overwinter`, `Sapling`,
-`Blossom`, `Heartwood`, `Canopy`, `NU5`, `NU6_1`, `NU6_2`, `NU6_3`, `NU7`
-```
 
-That is the complete, authoritative list. There is no `NU6` — the sequence goes NU5, then
-straight to NU6_1. Activation heights must also be strictly increasing, which is why
-`ops/zebrad-regtest.toml` spaces them 1..10 instead of setting them all to 1.
+It validates every table against the key sets zebrad actually accepted, and asserts the
+ordering. It is verified to catch all three mistakes above.
 
-If zebrad ever rejects the config again, run `zebrad generate` to emit a canonical file
-and diff it against ours.
+If zebrad rejects something the validator does not know about, run `zebrad generate` to
+emit a canonical config and diff it against ours.
 
 ## The one thing that may not work out of the box
 

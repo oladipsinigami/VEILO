@@ -10,26 +10,34 @@
 #     upgrades at low heights, so the demo exercises the real target network rules
 #     (Ironwood pool, enableCrossAddress = 0) deterministically and offline.
 #
-# Verified against zebrad's own error message (Oct 12): the complete set of valid
-# keys under network.testnet_parameters.activation_heights is
-#   Overwinter, Sapling, Blossom, Heartwood, Canopy, NU5, NU6_1, NU6_2, NU6_3, NU7
-# There is NO `NU6`. Heights are strictly increasing because Zebra validates the
-# order, so NU6.3 lands at 9 and NU7 at 10 rather than all at height 1.
+# Every key below was fixed against a real zebrad `Configuration error`, not guessed.
+# The config is deny_unknown_fields, so ONE wrong key makes the node refuse to start.
+# Two mistakes that cost iterations, recorded so they are not repeated:
+#   * The dot-release names are `NU6.1`, `NU6.2`, `NU6.3` -- WITH DOTS. Writing
+#     `NU6_1` is rejected. Dotted keys must be quoted in TOML.
+#   * `enable_zmq` is not a valid [rpc] key in this version. Valid keys are
+#     listen_addr, indexer_listen_addr, lightwalletd_listen_addr,
+#     parallel_cpu_threads, debug_force_finished_sync, cookie_dir,
+#     enable_cookie_auth, max_response_body_size.
+# Activation heights are strictly increasing (Zebra validates the order).
+# NU6.3 lands at 11 and NU7 at 12.
 
 [network]
 network = "Regtest"
 
 [network.testnet_parameters.activation_heights]
-Overwinter = 1
-Sapling = 2
-Blossom = 3
-Heartwood = 4
-Canopy = 5
-NU5 = 6
-NU6_1 = 7
-NU6_2 = 8
-NU6_3 = 9
-NU7 = 10
+BeforeOverwinter = 1
+Overwinter = 2
+Sapling = 3
+Blossom = 4
+Heartwood = 5
+Canopy = 6
+NU5 = 7
+"NU6" = 8
+"NU6.1" = 9
+"NU6.2" = 10
+"NU6.3" = 11
+NU7 = 12
 
 # Non-persistent chain state. Every restart is a clean chain, which is what a
 # deterministic demo wants.
@@ -39,7 +47,6 @@ ephemeral = true
 # Needed so send_raw_transaction can mine non-coinbase transactions onto the chain.
 [rpc]
 listen_addr = "0.0.0.0:8232"
-enable_zmq = false
 
 # `internal_miner` belongs INSIDE [mining]. There is no top-level [internal_miner]
 # table, and the config is deny_unknown_fields, so an unknown table makes zebrad
