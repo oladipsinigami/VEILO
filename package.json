@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Veilo — sealed-bid second-price auctions with publicly verifiable clearing prices on Zcash",
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --experimental-strip-types --test \"test/*.test.js\"",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
