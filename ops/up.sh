@@ -44,16 +44,21 @@ cookie_file() {
 }
 
 LAST_RESP=""
+LAST_CODE=""
+LAST_EXIT=""
 for i in $(seq 1 60); do
   auth=()
   if cf=$(cookie_file); then auth=(-u "cookie:$(cat "$cf")"); fi
   # getblockcount is an INDEXER method. It only exists on indexer_listen_addr,
   # never on the main rpc listen_addr.
-  LAST_RESP=$(curl -s --max-time 2 "${auth[@]}" "http://127.0.0.1:${IDX_PORT}" \
+  LAST_RESP=$(curl -s --max-time 3 "${auth[@]}" "http://127.0.0.1:${IDX_PORT}" \
        -H 'content-type: application/json' \
-       --data '{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}' 2>/dev/null || true)
+       --data '{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}' \
+       -w '\n%{http_code}' 2>/dev/null); LAST_EXIT=$?
+  LAST_CODE=$(printf '%s' "$LAST_RESP" | tail -n1)
+  LAST_RESP=$(printf '%s' "$LAST_RESP" | sed '$d')
   if printf '%s' "$LAST_RESP" | grep -q '"result"'; then
-    echo "zebrad is up after ${i}s"
+    echo "zebrad is up after ${i}s (height ${LAST_RESP})"
     ./"$ZEBRA_BIN" --version 2>/dev/null || true
     exit 0
   fi
@@ -61,8 +66,12 @@ for i in $(seq 1 60); do
 done
 
 echo "zebrad did not come up in 60s." >&2
-echo "last indexer RPC response: ${LAST_RESP:-<empty>}" >&2
-echo "(an empty response means the indexer port is not listening -- check that" >&2
-echo " indexer_listen_addr is set in $CONFIG and matches port ${IDX_PORT})" >&2
-tail -30 "$LOG" >&2
+if cf=$(cookie_file); then
+  echo "auth cookie found at: $cf" >&2
+else
+  echo "NO AUTH COOKIE FOUND. Searched: \$ZEBO_COOKIE, \$HOME/.cache/zebra/.cookie, $PWD/ops/zebra.cookie" >&2
+  echo "(zebrad writes it only after binding the port; cookie_dir comes from the config)" >&2
+fi
+echo "last indexer RPC: curl_exit=$LAST_EXIT http_code=${LAST_CODE:-<none>} body=${LAST_RESP:-<empty>}" >&2
+tail -15 "$LOG" >&2
 exit 1
