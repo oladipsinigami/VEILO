@@ -1,0 +1,17 @@
+[package]
+name = "veilo-core"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+license = "MIT OR Apache-2.0"
+description = "Veilo memo codec, Vickrey pricing, and seller-exclusion verification"
+
+[dependencies]
+# Pinned to the versions on librustzcash `main` so the browser WASM auditor and
+# this crate agree byte-for-byte with the TypeScript reference implementation.
+blake2 = { version = "0.10", default-features = false }
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
+x25519-dalek = { version = "2.0", default-features = false, features = ["alloc", "static_secrets"] }
+
+[features]
+default = []

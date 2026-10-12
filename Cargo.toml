@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = ["crates/veilo-core", "crates/veilo-wasm"]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.88"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/veilo/veilo"
+
+[workspace.dependencies]
+veilo-core = { path = "crates/veilo-core" }
+
+# Pinned to the versions on librustzcash `main` (verified Oct 12, 2026) so the
+# auditor and the TypeScript reference implementation agree byte-for-byte.
+blake2 = { version = "0.10", default-features = false }
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
+x25519-dalek = { version = "2.0", default-features = false, features = ["alloc", "static_secrets"] }
+
+# NOTE ON VERSIONS: these three are the same *major* lines that
+# zcash_note_encryption 0.5.1 / orchard 0.16 / sapling-crypto 0.9 pull in on
+# librustzcash main. They are NOT the versions pinned in WebZjs (which uses
+# sapling-crypto 0.6). If we later depend on the full auditor, pin to
+# librustzcash main exactly and re-run the cross-implementation vector test.
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = "s"
