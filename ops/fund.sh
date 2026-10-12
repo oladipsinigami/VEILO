@@ -18,7 +18,20 @@ RPC="http://127.0.0.1:${ZEBO_RPC_PORT:-8232}"
 CONFIG="ops/zebrad-regtest.toml"
 mkdir -p ops/keys
 
-rpc() { curl -s --max-time 15 "$RPC" -H 'content-type: application/json' --data "$1"; }
+cookie_file() {
+  for c in "${ZEBO_COOKIE:-}" "$HOME/.cache/zebra/.cookie" "$PWD/ops/zebra.cookie"; do
+    if [ -n "$c" ] && [ -s "$c" ]; then echo "$c"; return 0; fi
+  done
+  return 1
+}
+
+# Cookie auth is mandatory: with enable_cookie_auth = true (the default) zebrad
+# rejects unauthenticated JSON-RPC, so every call here must carry the cookie.
+rpc() {
+  local auth=()
+  if cf=$(cookie_file); then auth=(-u "cookie:$(cat "$cf")"); fi
+  curl -s --max-time 15 "${auth[@]}" "$RPC" -H 'content-type: application/json' --data "$1"
+}
 height() {
   rpc '{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}' \
   | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("result",0))' 2>/dev/null || echo 0
@@ -78,10 +91,20 @@ if ! "$BIN" --version >/dev/null 2>&1; then :; fi
 START=$(height)
 TARGET=$(( START + 110 ))
 LAST=$START
+STALLED=0
 while [ "$LAST" -lt "$TARGET" ]; do
   rpc '{"jsonrpc":"2.0","id":1,"method":"generate","params":[1]}' >/dev/null 2>&1 || true
   NOW=$(height)
-  if [ "$NOW" -ne "$LAST" ]; then printf '\r  height %s / %s' "$NOW" "$TARGET"; LAST=$NOW; fi
+  if [ "$NOW" -ne "$LAST" ]; then
+    printf '\r  height %s / %s' "$NOW" "$TARGET"; LAST=$NOW; STALLED=0
+  else
+    STALLED=$(( STALLED + 1 ))
+    # A silent `generate` failure would otherwise spin here forever.
+    if [ "$STALLED" -ge 20 ]; then
+      printf '\r  height %s / %s  stalled\n' "$LAST" "$TARGET" >&2
+      break
+    fi
+  fi
 done
 printf '\r  height %s / %s  done\n' "$LAST" "$TARGET"
 

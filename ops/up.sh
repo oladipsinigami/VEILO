@@ -12,10 +12,10 @@ ZEBRA_BIN="bin/zebrad"
 if [ -x bin/zebrad-internal-miner ]; then ZEBRA_BIN="bin/zebrad-internal-miner"; fi
 
 if [ ! -x "$ZEBRA_BIN" ]; then
-  echo "no zebrad binary. Run: bash ops/bootstrap.sh (prebuilt) or bash ops/build-zebra.sh (can mine)" >&2
-  echo "If the prebuilt download failed, rebuild with internal-miner:" >&2
-  echo "  cargo install --git https://github.com/ZcashFoundation/zebra --locked \\" >&2
-  echo "    --bin zebrad --features internal-miner" >&2
+  echo "no zebrad binary at $ZEBRA_BIN" >&2
+  echo "Only a source build can mine, because the internal-miner feature is not" >&2
+  echo "in the published release artifacts:" >&2
+  echo "  bash ops/build-zebra.sh" >&2
   exit 1
 fi
 
@@ -32,8 +32,22 @@ echo "starting zebrad (regtest), rpc on 127.0.0.1:${RPC_PORT}"
 nohup "./$ZEBRA_BIN" -c "$CONFIG" > "$LOG" 2>&1 &
 echo $! > "$PIDFILE"
 
+# Zebra's cookie auth expects HTTP Basic with the literal username "cookie" and
+# the .cookie file contents as the password. The cookie is written *after* the
+# node binds the port, so it has to be re-resolved on every poll.
+cookie_file() {
+  for c in "${ZEBO_COOKIE:-}" "$HOME/.cache/zebra/.cookie" "$PWD/ops/zebra.cookie"; do
+    if [ -n "$c" ] && [ -s "$c" ]; then echo "$c"; return 0; fi
+  done
+  return 1
+}
+
+rpc_auth=()
+if cf=$(cookie_file); then rpc_auth=(-u "cookie:$(cat "$cf")"); fi
+
 for i in $(seq 1 60); do
-  if curl -s --max-time 2 "http://127.0.0.1:${RPC_PORT}" \
+  if cf=$(cookie_file); then rpc_auth=(-u "cookie:$(cat "$cf")"); fi
+  if curl -s --max-time 2 "${rpc_auth[@]}" "http://127.0.0.1:${RPC_PORT}" \
        -H 'content-type: application/json' \
        --data '{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}' \
        | grep -q '"result"'; then
@@ -45,5 +59,6 @@ for i in $(seq 1 60); do
 done
 
 echo "zebrad did not come up in 60s. Last log lines:" >&2
+echo "(if the log says 'Opened RPC endpoint', the node is fine and this is an auth problem)" >&2
 tail -30 "$LOG" >&2
 exit 1
