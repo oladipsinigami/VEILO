@@ -55,7 +55,9 @@ pub struct AuctionParams {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AuctionError {
-    NegativeBid { order_key: String },
+    NegativeBid {
+        order_key: String,
+    },
     ArithmeticOverflow,
     /// The reserve exceeds the winner's collateral. The auction cannot settle.
     ReserveUnreachable {
@@ -252,7 +254,10 @@ pub struct AuctionResult {
 /// winner regardless of input ordering.
 pub fn compare_bids(a: &AuditedBid, b: &AuditedBid) -> Ordering {
     match a.bid_zat.cmp(&b.bid_zat).reverse() {
-        Ordering::Equal => a.height.cmp(&b.height).then(a.note_index.cmp(&b.note_index)),
+        Ordering::Equal => a
+            .height
+            .cmp(&b.height)
+            .then(a.note_index.cmp(&b.note_index)),
         other => other,
     }
 }
@@ -407,7 +412,11 @@ pub fn build_settlement_plan(
     // Walk ALL bids, not just the effective ones. Dropping an invalid bidder here
     // would silently strand their collateral.
     for bid in &result.all_bids {
-        if result.winner.as_ref().is_some_and(|w| w.order_key == bid.order_key) {
+        if result
+            .winner
+            .as_ref()
+            .is_some_and(|w| w.order_key == bid.order_key)
+        {
             continue;
         }
         lines.push(SettlementLine {
@@ -428,9 +437,8 @@ pub fn build_settlement_plan(
     // The fee leaves the escrow exactly once — it is the transaction fee paid to the
     // network. Subtracting it again here when the seller already absorbed it would
     // double-count and overstate change.
-    let change_signed = (result.total_collateral_zat as i128)
-        - (distributed as i128)
-        - (fee_zat as i128);
+    let change_signed =
+        (result.total_collateral_zat as i128) - (distributed as i128) - (fee_zat as i128);
     let unfunded_fee_zat = if change_signed < 0 {
         (-change_signed) as u64
     } else {
@@ -439,7 +447,11 @@ pub fn build_settlement_plan(
 
     Ok(SettlementPlan {
         lines,
-        change_zat: if change_signed > 0 { change_signed as u64 } else { 0 },
+        change_zat: if change_signed > 0 {
+            change_signed as u64
+        } else {
+            0
+        },
         fee_from_seller_zat,
         unfunded_fee_zat,
         balanced: unfunded_fee_zat == 0,
@@ -496,7 +508,10 @@ mod tests {
                 BidStatus::InvalidLateBlock
             );
         }
-        assert_eq!(classify_bid(1100, 0, 5 * ZAT, true, &a).status, BidStatus::Valid);
+        assert_eq!(
+            classify_bid(1100, 0, 5 * ZAT, true, &a).status,
+            BidStatus::Valid
+        );
         assert_eq!(
             classify_bid(1100, 0, 5 * ZAT, false, &a).status,
             BidStatus::InvalidNoReveal
@@ -546,7 +561,10 @@ mod tests {
 
     #[test]
     fn ties_break_deterministically_regardless_of_input_order() {
-        let a = AuctionParams { reserve_zat: 0, ..auction() };
+        let a = AuctionParams {
+            reserve_zat: 0,
+            ..auction()
+        };
         let mk = |h: u32, i: u32| bid(h, i, 10 * ZAT, Some(7 * ZAT));
         let mut a1 = vec![mk(1105, 0), mk(1100, 0)];
         let mut a2 = vec![mk(1100, 0), mk(1105, 0)];
@@ -572,7 +590,10 @@ mod tests {
     fn single_bidder_wins_at_the_reserve() {
         let bids = vec![bid(1100, 0, 10 * ZAT, None)];
         let r = resolve_bids(bids, &reveals(&[("1100:000000", 9 * ZAT)])).unwrap();
-        let a = AuctionParams { reserve_zat: 3 * ZAT, ..auction() };
+        let a = AuctionParams {
+            reserve_zat: 3 * ZAT,
+            ..auction()
+        };
         let out = compute_auction_result(r, &a).unwrap();
         assert_eq!(out.second_highest_zat, None);
         assert_eq!(out.clearing_price_zat, 3 * ZAT);
@@ -582,7 +603,10 @@ mod tests {
     fn unreachable_reserve_is_an_error_not_a_broken_plan() {
         let bids = vec![bid(1100, 0, 1_000, None)];
         let r = resolve_bids(bids, &reveals(&[("1100:000000", 1_000)])).unwrap();
-        let a = AuctionParams { reserve_zat: 5 * ZAT, ..auction() };
+        let a = AuctionParams {
+            reserve_zat: 5 * ZAT,
+            ..auction()
+        };
         assert!(matches!(
             compute_auction_result(r, &a),
             Err(AuctionError::ReserveUnreachable { .. })
@@ -593,10 +617,7 @@ mod tests {
     fn i3_seller_shill_cannot_profit() {
         // Without exclusion the seller's own 10 ZEC bid sets the price at 8 ZEC, which
         // it captures as proceeds and is refunded for free as a "loser".
-        let bids = vec![
-            bid(1100, 0, 10 * ZAT, None),
-            bid(1101, 0, 10 * ZAT, None),
-        ];
+        let bids = vec![bid(1100, 0, 10 * ZAT, None), bid(1101, 0, 10 * ZAT, None)];
         let r = resolve_bids(
             bids,
             &reveals(&[("1100:000000", 8 * ZAT), ("1101:000000", 10 * ZAT)]),
@@ -607,9 +628,12 @@ mod tests {
         let naive = compute_auction_result(r.clone(), &auction()).unwrap();
         assert_eq!(naive.winner.as_ref().unwrap().order_key, "1101:000000");
         let addr = |_k: &str| "utest1refund".to_string();
-        let naive_plan =
-            build_settlement_plan(&naive, &addr, SELLER, 0).unwrap();
-        let seller_line = naive_plan.lines.iter().find(|l| l.kind == LineKind::Seller).unwrap();
+        let naive_plan = build_settlement_plan(&naive, &addr, SELLER, 0).unwrap();
+        let seller_line = naive_plan
+            .lines
+            .iter()
+            .find(|l| l.kind == LineKind::Seller)
+            .unwrap();
         let self_refund = naive_plan
             .lines
             .iter()
@@ -703,22 +727,33 @@ mod tests {
         assert!(plan.balanced);
         assert_eq!(plan.unfunded_fee_zat, 0);
 
-        let total: u64 = plan.lines.iter().map(|l| l.amount_zat).sum::<u64>()
-            + plan.change_zat
-            + fee;
+        let total: u64 =
+            plan.lines.iter().map(|l| l.amount_zat).sum::<u64>() + plan.change_zat + fee;
         assert_eq!(total, result.total_collateral_zat);
 
         assert_eq!(result.clearing_price_zat, 8 * ZAT);
         assert_eq!(plan.fee_from_seller_zat, fee);
 
-        let winner = plan.lines.iter().find(|l| l.kind == LineKind::Winner).unwrap();
+        let winner = plan
+            .lines
+            .iter()
+            .find(|l| l.kind == LineKind::Winner)
+            .unwrap();
         assert_eq!(winner.amount_zat, 2 * ZAT);
-        let seller = plan.lines.iter().find(|l| l.kind == LineKind::Seller).unwrap();
+        let seller = plan
+            .lines
+            .iter()
+            .find(|l| l.kind == LineKind::Seller)
+            .unwrap();
         assert_eq!(seller.amount_zat, 8 * ZAT - fee);
 
         // The invalid bidder is refunded IN FULL under an explicit line. Losing a bid
         // to the solvency rule must never cost anything, or it creates a grief vector.
-        let refunded = plan.lines.iter().find(|l| l.kind == LineKind::Unrevealed).unwrap();
+        let refunded = plan
+            .lines
+            .iter()
+            .find(|l| l.kind == LineKind::Unrevealed)
+            .unwrap();
         assert_eq!(refunded.amount_zat, 100_000);
         assert_eq!(refunded.destination, "utest1refund-1103:000000");
     }
@@ -736,7 +771,11 @@ mod tests {
         let plan = build_settlement_plan(&result, &addr, SELLER, 1_000).unwrap();
 
         assert!(plan.balanced);
-        let winner = plan.lines.iter().find(|l| l.kind == LineKind::Winner).unwrap();
+        let winner = plan
+            .lines
+            .iter()
+            .find(|l| l.kind == LineKind::Winner)
+            .unwrap();
         // collateral 10, price = second-highest 7
         assert_eq!(winner.amount_zat, 3 * ZAT);
         for l in plan.lines.iter().filter(|l| l.kind == LineKind::Loser) {
@@ -749,7 +788,10 @@ mod tests {
     fn a_fee_larger_than_the_escrow_is_reported_not_dropped() {
         let bids = vec![bid(1100, 0, 100_000, None)];
         let r = resolve_bids(bids, &reveals(&[("1100:000000", 100_000)])).unwrap();
-        let a = AuctionParams { reserve_zat: 0, ..auction() };
+        let a = AuctionParams {
+            reserve_zat: 0,
+            ..auction()
+        };
         let result = compute_auction_result(r, &a).unwrap();
         let addr = |_k: &str| "utest1r".to_string();
         let plan = build_settlement_plan(&result, &addr, SELLER, 50_000).unwrap();
@@ -760,10 +802,7 @@ mod tests {
 
     #[test]
     fn all_bids_survives_into_the_result() {
-        let bids = vec![
-            bid(1100, 0, 10 * ZAT, None),
-            bid(1103, 0, 100_000, None),
-        ];
+        let bids = vec![bid(1100, 0, 10 * ZAT, None), bid(1103, 0, 100_000, None)];
         let r = resolve_bids(
             bids,
             &reveals(&[("1100:000000", 10 * ZAT), ("1103:000000", 4 * ZAT)]),

@@ -52,7 +52,11 @@ fn load_scenarios() -> Vec<(String, Vec<(String, String)>)> {
         out.push((n, fields));
     }
 
-    assert!(!out.is_empty(), "no scenarios parsed from {}", path.display());
+    assert!(
+        !out.is_empty(),
+        "no scenarios parsed from {}",
+        path.display()
+    );
     out
 }
 
@@ -66,7 +70,9 @@ impl Scenario {
         self.f.get(k).map_or("", |s| s.as_str())
     }
     fn get_u64(&self, k: &str) -> u64 {
-        self.get(k).parse().unwrap_or_else(|_| panic!("{}/{} is not a u64", self.name, k))
+        self.get(k)
+            .parse()
+            .unwrap_or_else(|_| panic!("{}/{} is not a u64", self.name, k))
     }
     fn get_usize(&self, k: &str) -> usize {
         self.get_u64(k) as usize
@@ -124,7 +130,11 @@ fn rust_reproduces_typescript_auction_outcomes() {
             // A reveal was published iff the vector carries a non-empty bid value.
             let reveal_valid = !s.get(&format!("{p}bid")).is_empty();
             classified.push(classify_bid(
-                height, note_index, collateral, reveal_valid, &auction,
+                height,
+                note_index,
+                collateral,
+                reveal_valid,
+                &auction,
             ));
         }
 
@@ -177,7 +187,11 @@ fn rust_reproduces_typescript_auction_outcomes() {
                     s.get(&format!("proof_{i}_key")).to_string(),
                     {
                         let o = s.get(&format!("proof_{i}_opened"));
-                        if o.is_empty() { None } else { Some(o.to_string()) }
+                        if o.is_empty() {
+                            None
+                        } else {
+                            Some(o.to_string())
+                        }
                     },
                     s.get_bool(&format!("proof_{i}_fails")),
                 )
@@ -257,7 +271,12 @@ fn rust_reproduces_typescript_auction_outcomes() {
         let plan = build_settlement_plan(&result, &addr, s.get("seller"), s.get_u64("fee"))
             .unwrap_or_else(|e| panic!("{}: settlement: {e}", s.name));
 
-        assert_eq!(plan.lines.len(), s.get_usize("nlines"), "{}: line count", s.name);
+        assert_eq!(
+            plan.lines.len(),
+            s.get_usize("nlines"),
+            "{}: line count",
+            s.name
+        );
         for (i, l) in plan.lines.iter().enumerate() {
             let expected = format!(
                 "{}|{}|{}|{}",
@@ -266,9 +285,19 @@ fn rust_reproduces_typescript_auction_outcomes() {
                 l.destination,
                 l.amount_zat
             );
-            assert_eq!(expected, s.get(&format!("line_{i}")), "{}: line {i}", s.name);
+            assert_eq!(
+                expected,
+                s.get(&format!("line_{i}")),
+                "{}: line {i}",
+                s.name
+            );
         }
-        assert_eq!(plan.change_zat, s.get_u64("exp_change"), "{}: change", s.name);
+        assert_eq!(
+            plan.change_zat,
+            s.get_u64("exp_change"),
+            "{}: change",
+            s.name
+        );
         assert_eq!(
             plan.fee_from_seller_zat,
             s.get_u64("exp_fee_from_seller"),

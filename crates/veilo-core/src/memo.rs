@@ -168,7 +168,11 @@ pub fn compute_bid_commit(
 }
 
 /// The 40-byte permissionless reveal: `auction_id(16) || bid_zat_le(8) || nonce(16)`.
-pub fn encode_reveal(auction_id: &[u8], bid_zat: u64, nonce: &[u8]) -> Result<[u8; 40], VeiloError> {
+pub fn encode_reveal(
+    auction_id: &[u8],
+    bid_zat: u64,
+    nonce: &[u8],
+) -> Result<[u8; 40], VeiloError> {
     if auction_id.len() != AUCTION_ID_SIZE || nonce.len() != NONCE_SIZE {
         return Err(VeiloError::SizeMismatch(
             "reveal requires a 16-byte auction_id and 16-byte nonce".into(),
@@ -228,9 +232,10 @@ pub fn seal_refund_address_with_seed(
 
     let esk = StaticSecret::from(*esk_refund);
     let epk = PublicKey::from(&esk);
-    let shared = esk.diffie_hellman(&PublicKey::from(<[u8; 32]>::try_from(pk_refund).map_err(
-        |_| VeiloError::SizeMismatch("PK_refund must be 32 bytes".into()),
-    )?));
+    let shared = esk
+        .diffie_hellman(&PublicKey::from(<[u8; 32]>::try_from(pk_refund).map_err(
+            |_| VeiloError::SizeMismatch("PK_refund must be 32 bytes".into()),
+        )?));
     let key = derive_pad_key(&shared.to_bytes());
 
     let mut padded = [0u8; REFUND_PLAINTEXT_MAX];
@@ -287,9 +292,10 @@ pub fn open_refund_address(
     }
 
     let esk = StaticSecret::from(*sk_refund);
-    let shared = esk.diffie_hellman(&PublicKey::from(<[u8; 32]>::try_from(epk_refund).map_err(
-        |_| VeiloError::SizeMismatch("epk_refund must be 32 bytes".into()),
-    )?));
+    let shared = esk
+        .diffie_hellman(&PublicKey::from(<[u8; 32]>::try_from(epk_refund).map_err(
+            |_| VeiloError::SizeMismatch("epk_refund must be 32 bytes".into()),
+        )?));
     let key = derive_pad_key(&shared.to_bytes());
 
     let cipher = ChaCha20Poly1305::new(Key::from_slice(&key));
@@ -366,11 +372,23 @@ pub fn unpack_memo(memo: &[u8]) -> Result<MemoFields, VeiloError> {
         return Err(VeiloError::NonZeroPadding);
     }
     Ok(MemoFields {
-        auction_id: expect(&memo[OFF_AUCTION_ID..OFF_AUCTION_ID + AUCTION_ID_SIZE], "auction_id")?,
+        auction_id: expect(
+            &memo[OFF_AUCTION_ID..OFF_AUCTION_ID + AUCTION_ID_SIZE],
+            "auction_id",
+        )?,
         epk_bid: expect(&memo[OFF_EPK_BID..OFF_EPK_BID + EPK_SIZE], "epk_bid")?,
-        epk_refund: expect(&memo[OFF_EPK_REFUND..OFF_EPK_REFUND + EPK_SIZE], "epk_refund")?,
-        bid_commit: expect(&memo[OFF_BID_COMMIT..OFF_BID_COMMIT + BID_COMMIT_SIZE], "bid_commit")?,
-        c_refund: expect(&memo[OFF_C_REFUND..OFF_C_REFUND + C_REFUND_SIZE], "c_refund")?,
+        epk_refund: expect(
+            &memo[OFF_EPK_REFUND..OFF_EPK_REFUND + EPK_SIZE],
+            "epk_refund",
+        )?,
+        bid_commit: expect(
+            &memo[OFF_BID_COMMIT..OFF_BID_COMMIT + BID_COMMIT_SIZE],
+            "bid_commit",
+        )?,
+        c_refund: expect(
+            &memo[OFF_C_REFUND..OFF_C_REFUND + C_REFUND_SIZE],
+            "c_refund",
+        )?,
     })
 }
 
@@ -401,9 +419,18 @@ mod tests {
 
         assert_eq!(base, compute_bid_commit(&a, 500, &n, &e).unwrap());
         assert_ne!(base, compute_bid_commit(&a, 501, &n, &e).unwrap());
-        assert_ne!(base, compute_bid_commit(&a, 500, &[0x23u8; 16], &e).unwrap());
-        assert_ne!(base, compute_bid_commit(&[0x12u8; 16], 500, &n, &e).unwrap());
-        assert_ne!(base, compute_bid_commit(&a, 500, &n, &[0x34u8; 32]).unwrap());
+        assert_ne!(
+            base,
+            compute_bid_commit(&a, 500, &[0x23u8; 16], &e).unwrap()
+        );
+        assert_ne!(
+            base,
+            compute_bid_commit(&[0x12u8; 16], 500, &n, &e).unwrap()
+        );
+        assert_ne!(
+            base,
+            compute_bid_commit(&a, 500, &n, &[0x34u8; 32]).unwrap()
+        );
     }
 
     #[test]
@@ -415,7 +442,10 @@ mod tests {
 
         let seal = seal_refund_address_with_seed(&pk, &[9u8; 32], addr, Some(&aad)).unwrap();
         assert_eq!(seal.sealed.len(), C_REFUND_SIZE);
-        assert_eq!(open_refund_address(&sk, &seal.epk_refund, &seal.sealed, Some(&aad)).unwrap(), "utest1exampleaddress");
+        assert_eq!(
+            open_refund_address(&sk, &seal.epk_refund, &seal.sealed, Some(&aad)).unwrap(),
+            "utest1exampleaddress"
+        );
 
         // Wrong AAD must fail: this is what binds the seal to one auction.
         assert_eq!(
@@ -516,7 +546,10 @@ mod tests {
         let r = encode_reveal(&[0x01; 16], 987_654_321, &[0x02; 16]).unwrap();
         assert_eq!(r.len(), 40);
         assert_eq!(&r[..16], &[0x01u8; 16]);
-        assert_eq!(u64::from_le_bytes(r[16..24].try_into().unwrap()), 987_654_321);
+        assert_eq!(
+            u64::from_le_bytes(r[16..24].try_into().unwrap()),
+            987_654_321
+        );
         assert_eq!(&r[24..], &[0x02u8; 16]);
     }
 }

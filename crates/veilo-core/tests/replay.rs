@@ -45,8 +45,12 @@ fn load_vectors() -> Vec<(String, HashMap<String, String>)> {
         .join("..")
         .join("test")
         .join("vectors.txt");
-    let text = fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("cannot read {}: {e}\nrun: node test/gen-vectors.mjs", path.display()));
+    let text = fs::read_to_string(&path).unwrap_or_else(|e| {
+        panic!(
+            "cannot read {}: {e}\nrun: node test/gen-vectors.mjs",
+            path.display()
+        )
+    });
 
     let mut out = Vec::new();
     let mut name: Option<String> = None;
@@ -87,7 +91,10 @@ fn rust_matches_typescript_byte_for_byte() {
     );
 
     for (name, f) in vectors {
-        let get = |k: &str| f.get(k).unwrap_or_else(|| panic!("{name}: missing key {k}"));
+        let get = |k: &str| {
+            f.get(k)
+                .unwrap_or_else(|| panic!("{name}: missing key {k}"))
+        };
 
         let address = unhex(get("address"));
         let aad = {
@@ -112,7 +119,11 @@ fn rust_matches_typescript_byte_for_byte() {
         let expect_memo = unhex(get("memo"));
 
         // 1. The derived public key must match the vector.
-        assert_eq!(public_key_from_secret(&sk_refund), pk_refund, "{name}: PK derivation");
+        assert_eq!(
+            public_key_from_secret(&sk_refund),
+            pk_refund,
+            "{name}: PK derivation"
+        );
 
         // 2. Commitment and reveal must match.
         assert_eq!(
@@ -127,13 +138,8 @@ fn rust_matches_typescript_byte_for_byte() {
         );
 
         // 3. Sealing with the pinned ephemeral must reproduce the ciphertext exactly.
-        let seal = seal_refund_address_with_seed(
-            &pk_refund,
-            &esk_refund,
-            &address,
-            aad.as_deref(),
-        )
-        .unwrap();
+        let seal = seal_refund_address_with_seed(&pk_refund, &esk_refund, &address, aad.as_deref())
+            .unwrap();
         assert_eq!(seal.epk_refund, expect_epk_refund, "{name}: epk_refund");
         assert_eq!(seal.sealed.to_vec(), expect_sealed, "{name}: c_refund");
 
@@ -145,7 +151,11 @@ fn rust_matches_typescript_byte_for_byte() {
             aad.as_deref(),
         )
         .unwrap_or_else(|e| panic!("{name}: Rust failed to open a TS seal: {e}"));
-        assert_eq!(opened.as_bytes(), address.as_slice(), "{name}: opened address");
+        assert_eq!(
+            opened.as_bytes(),
+            address.as_slice(),
+            "{name}: opened address"
+        );
 
         // 5. Memo packing must be byte-identical, including the zero padding.
         let fields = MemoFields {
