@@ -10,17 +10,22 @@
 #     upgrades at low heights, so the demo exercises the real target network rules
 #     (Ironwood pool, enableCrossAddress = 0) deterministically and offline.
 #
-# Every key below was fixed against a real zebrad `Configuration error`, not guessed.
-# The config is deny_unknown_fields, so ONE wrong key makes the node refuse to start.
-# Two mistakes that cost iterations, recorded so they are not repeated:
-#   * The dot-release names are `NU6.1`, `NU6.2`, `NU6.3` -- WITH DOTS. Writing
-#     `NU6_1` is rejected. Dotted keys must be quoted in TOML.
-#   * `enable_zmq` is not a valid [rpc] key in this version. Valid keys are
-#     listen_addr, indexer_listen_addr, lightwalletd_listen_addr,
-#     parallel_cpu_threads, debug_force_finished_sync, cookie_dir,
-#     enable_cookie_auth, max_response_body_size.
-# Activation heights are strictly increasing (Zebra validates the order).
-# NU6.3 lands at 11 and NU7 at 12.
+# ---------------------------------------------------------------------------
+# Every table and key below was confirmed by real zebrad `Configuration error`
+# output. The config is deny_unknown_fields, so ONE wrong name makes the node
+# refuse to start. Mistakes made, recorded so they are not repeated:
+#   * `NU6.1` / `NU6.2` / `NU6.3` use DOTS. `NU6_1` is rejected. Quoted in TOML.
+#   * `enable_zmq` is not a valid [rpc] key.
+#   * `sentry` and `logging` are NOT valid top-level tables. The complete set is
+#     consensus, metrics, network, state, tracing, sync, mempool, notify, rpc,
+#     mining, health, zcashd_compat.
+# Activation heights must be strictly increasing and >= 1 (height 0 is Genesis).
+# NU6.3 lands at 11, NU7 at 12.
+#
+# This is deliberately MINIMAL. Anything optional we do not need was removed,
+# because every optional key is another chance of an unknown-field rejection.
+# Validate before touching the codespace:  node ops/validate-config.mjs
+# ---------------------------------------------------------------------------
 
 [network]
 network = "Regtest"
@@ -39,7 +44,7 @@ NU5 = 7
 "NU6.3" = 11
 NU7 = 12
 
-# Non-persistent chain state. Every restart is a clean chain, which is what a
+# Non-persistent chain state: every restart is a clean chain, which is what a
 # deterministic demo wants.
 [state]
 ephemeral = true
@@ -48,11 +53,8 @@ ephemeral = true
 [rpc]
 listen_addr = "0.0.0.0:8232"
 
-# `internal_miner` belongs INSIDE [mining]. There is no top-level [internal_miner]
-# table, and the config is deny_unknown_fields, so an unknown table makes zebrad
-# refuse to start.
-#
-# It is also gated on the cargo feature `internal-miner`: in
+# `internal_miner` belongs INSIDE [mining]; there is no top-level [internal_miner]
+# table. It is also gated on the cargo feature `internal-miner`: in
 # zebra-rpc/src/config/mining.rs, `is_internal_miner_enabled` is
 # #[cfg(feature = "internal-miner")], so the method does not exist at all in a build
 # without the feature and `internal_miner = true` is silently inert. The prebuilt
@@ -62,12 +64,3 @@ listen_addr = "0.0.0.0:8232"
 [mining]
 miner_address = "REPLACE_ME"
 internal_miner = true
-
-[metrics]
-listen_addr = "127.0.0.1:9990"
-
-[sentry]
-enabled = false
-
-[logging]
-colour = true

@@ -49,6 +49,23 @@ const MINING_KEYS = ["miner_address", "extra_coinbase_data", "miner_memo", "inte
 // Keys accepted under [state].
 const STATE_KEYS = ["cache_dir", "ephemeral", "memory_limit", "max_tips", "min_tips", "progress_bar"];
 
+// Complete set of valid TOP-LEVEL tables, from real zebrad error output.
+// Getting this wrong was a real bug: `[sentry]` and `[logging]` are not tables.
+const TOP_LEVEL_TABLES = [
+  "consensus",
+  "metrics",
+  "network",
+  "state",
+  "tracing",
+  "sync",
+  "mempool",
+  "notify",
+  "rpc",
+  "mining",
+  "health",
+  "zcashd_compat",
+];
+
 const here = dirname(fileURLToPath(import.meta.url));
 const path = join(here, "zebrad-regtest.toml");
 const raw = readFileSync(path, "utf8");
@@ -77,6 +94,20 @@ for (const rawLine of raw.split("\n")) {
 
   const kv = /^("(?:[^"]+)"|[A-Za-z0-9_.-]+)\s*=/.exec(line);
   if (kv) sections[current].add(kv[1].replace(/^"|"$/g, ""));
+}
+
+// Check the table names themselves. This was a blind spot: the validator checked
+// keys inside known tables but never checked that the tables existed at all, so
+// an invented `[sentry]` or `[logging]` passed validation and only failed on the
+// remote codespace.
+for (const table of Object.keys(sections)) {
+  // TOML `[a.b.c]` defines a nested table, so only the FIRST segment is a
+  // top-level table name. `network.testnet_parameters.activation_heights` is
+  // legitimately rooted at `network`.
+  const root = table.split(".")[0];
+  if (!TOP_LEVEL_TABLES.includes(root)) {
+    errors.push(`unknown table [${root}] (from [${table}]) — expected one of: ${TOP_LEVEL_TABLES.join(", ")}`);
+  }
 }
 
 function check(label, keys, allowed) {
@@ -129,6 +160,7 @@ if (values.some((v) => v.value < 1)) {
 console.log(`validating ${path}`);
 console.log(`  activation heights : ${ordered.join(", ")}`);
 console.log(`  rpc keys           : ${rpcKeys.join(", ")}`);
+console.log(`  tables             : ${Object.keys(sections).join(", ")}`);
 
 if (errors.length) {
   console.error("\nFAIL");

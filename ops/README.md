@@ -52,6 +52,10 @@ Three mistakes we made, recorded so they are not repeated:
    `listen_addr`, `indexer_listen_addr`, `lightwalletd_listen_addr`,
    `parallel_cpu_threads`, `debug_force_finished_sync`, `cookie_dir`,
    `enable_cookie_auth`, `max_response_body_size`.
+4. **`sentry` and `logging` are not valid top-level tables.** The complete set is
+   `consensus`, `metrics`, `network`, `state`, `tracing`, `sync`, `mempool`,
+   `notify`, `rpc`, `mining`, `health`, `zcashd_compat`. Use `[tracing]` if you
+   ever need colour/verbosity settings.
 
 Also: activation heights must be **strictly increasing**, and >= 1 (height 0 is reserved
 for Genesis).
@@ -62,8 +66,12 @@ for Genesis).
 node ops/validate-config.mjs
 ```
 
-It validates every table against the key sets zebrad actually accepted, and asserts the
-ordering. It is verified to catch all three mistakes above.
+It validates table *names* as well as keys within them, and asserts the ordering. It is
+verified to catch all four mistakes above.
+
+The config is deliberately minimal — only `network`, `state`, `rpc` and `mining`, all
+confirmed. Anything optional we do not need was removed, because every optional key is
+another chance of an unknown-field rejection.
 
 If zebrad rejects something the validator does not know about, run `zebrad generate` to
 emit a canonical config and diff it against ours.
