@@ -349,9 +349,10 @@ pub fn pack_memo(fields: &MemoFields) -> [u8; MEMO_SIZE] {
 }
 
 pub fn is_veilo_memo(memo: &[u8]) -> bool {
-    memo.len() >= 1 + PROTOCOL_TAG.len()
+    memo.len() > OFF_MAGIC_LEAD
+        && memo.len() > OFF_PROTOCOL_TAG + PROTOCOL_TAG.len()
         && memo[OFF_MAGIC_LEAD] == MAGIC_LEAD
-        && memo[OFF_PROTOCOL_TAG..OFF_PROTOCOL_TAG + 4] == PROTOCOL_TAG
+        && memo[OFF_PROTOCOL_TAG..OFF_PROTOCOL_TAG + PROTOCOL_TAG.len()] == PROTOCOL_TAG
 }
 
 /// Strict parse: a malformed envelope is an error, never a silently-truncated bid.
@@ -514,7 +515,7 @@ mod tests {
         let memo = pack_memo(&fields);
         assert_eq!(memo.len(), MEMO_SIZE);
         assert!(is_veilo_memo(&memo));
-        assert_eq!(memo[OFF_PADDING..].iter().all(|&b| b == 0), true);
+        assert!(memo[OFF_PADDING..].iter().all(|&b| b == 0));
 
         let parsed = unpack_memo(&memo).unwrap();
         assert_eq!(parsed.bid_commit, fields.bid_commit);
