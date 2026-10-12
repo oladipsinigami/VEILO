@@ -288,11 +288,14 @@ fn rust_reproduces_typescript_auction_outcomes() {
             s.name
         );
 
-        // Every scenario must conserve value, whatever the scenario was testing.
+        // Every scenario must conserve value, whatever it was testing.
+        // The fee leaves the escrow exactly once, and any part of it the escrow
+        // cannot cover is an external obligation rather than a redistribution, so it
+        // sits on the right-hand side: lines + change + fee == total + unfunded.
         let sum: u64 = plan.lines.iter().map(|l| l.amount_zat).sum();
         assert_eq!(
-            sum + plan.change_zat + plan.unfunded_fee_zat,
-            result.total_collateral_zat,
+            sum + plan.change_zat + s.get_u64("fee"),
+            result.total_collateral_zat + plan.unfunded_fee_zat,
             "{}: zatoshi conserved",
             s.name
         );

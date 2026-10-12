@@ -412,6 +412,20 @@ to trust the auctioneer's arithmetic, and no bidder learns anything about the ot
    `zcash_note_encryption` + `sapling-crypto`; **no Halo 2 proving keys, no `SharedArrayBuffer`,
    no worker threads.** Compiles to a small WASM binary that runs in any browser in tens of
    milliseconds. This is the core novelty and it is genuinely correct.
+
+   **Why this stays in Rust (decided Oct 12).** A TypeScript auditor is *theoretically* viable —
+   `@noble/curves` exposes BLS12-381 G1/G2 `multiply` and a Miller loop — but it was rejected for
+   two reasons. First, Sapling note decryption is exactly the kind of code that is wrong in a way
+   no local test catches: a subtly incorrect shared-secret derivation yields a "no match" for every
+   note, so the audit silently reports zero bids forever. Second, and decisively, **we cannot
+   obtain a real Sapling note ciphertext on this machine** to validate against (see Appendix A), so
+   a hand-rolled implementation would ship unvalidated. `librustzcash` is the reference
+   implementation; using it is the only way the correctness claim survives review.
+
+   **Rust's role is narrowed, not removed.** It exists for two things only: the auditor, because
+   the reference crypto must be used, and the settlement engine, because building and broadcasting
+   a real batched shielded transaction has no TypeScript equivalent. Everything else stays in
+   TypeScript. See Appendix A for why the cross-implementation vectors still matter.
 3. **`settlement-engine`** — `axum` service that (a) serves block-range ciphertexts from `zebrad`,
    (b) ingests permissionless reveals, (c) runs the audit server-side to produce a settlement plan,
    (d) broadcasts one batched shielded transaction via a `zcash_client_backend` wallet.
@@ -606,6 +620,15 @@ a judge (or future session) can reproduce the checks rather than take them on tr
 | Whether Track 2 has its own earlier sub-deadline | A Wildcard sub-bounty already had one (Oct 4) | Read track rules in the portal |
 | Testnet faucet availability and NU7 testnet wallet support | Gates Spikes B and C | Spike B by Oct 14 |
 | `zebrad` sync time on public Testnet | Gates Spike A | Spike A by Oct 13 |
+
+### Discovered constraints (Oct 12, environment survey)
+
+| Finding | Consequence |
+| :--- | :--- |
+| **`zebrad` ships Linux-only binaries.** `7.0.0-rc.0` publishes only `aarch64-unknown-linux-gnu` and `x86_64-unknown-linux-gnu` — no Windows or macOS build. | Spike A **cannot be completed on this machine**, with or without Docker. Regtest is off the table. Plan C (a committed bundle of real ciphertexts, recorded elsewhere) becomes the primary demo path rather than the fallback. |
+| Public explorer endpoints tested (`zcashexplorer.info`, `explorer.zcash.org`, `zcashscan`, `blockchair`) were unreachable from this environment. | **No external substitute for a node** for fetching full ciphertexts. Revisit before committing to a demo design; if all remain unreachable, the audit demo must run against pre-recorded ciphertexts. |
+| Smart App Control was blocking unsigned Rust build scripts until disabled. | Resolved, but it will block `wasm-pack` output and any `zebrad` binary too. Documented in `crates/README.md`. |
+| No TS path to real settlement: broadcasting a batched shielded transaction requires `zcash_client_backend`. | Confirms Rust is required for the settlement engine, not merely preferred. |
 
 ### Known-future breakage
 
