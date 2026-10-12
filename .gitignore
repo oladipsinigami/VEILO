@@ -1,0 +1,5 @@
+node_modules/
+dist/
+.wasm-pack/
+*.tsbuildinfo
+.DS_Store

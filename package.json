@@ -1,0 +1,20 @@
+{
+  "name": "veilo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Veilo — sealed-bid second-price auctions with publicly verifiable clearing prices on Zcash",
+  "scripts": {
+    "test": "node --test test/",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@noble/ciphers": "^1.3.0",
+    "@noble/curves": "^1.9.7",
+    "@noble/hashes": "^1.8.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^5.9.3"
+  }
+}
