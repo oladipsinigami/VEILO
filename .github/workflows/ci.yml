@@ -208,19 +208,25 @@ jobs:
           # `is_internal_miner_enabled` is #[cfg(feature = "internal-miner")], so
           # without it the method does not exist and `internal_miner = true` is
           # silently inert. Build from source instead.
-          # `-p zebrad` is required: without it cargo reports
-          #   "multiple packages with binaries found: zebra-fuzz-targets,
-          #    zebra-utils, zebrad"
-          # because --git searches the entire workspace for any Cargo.toml.
+          #
+          # Clone and build in-tree rather than `cargo install --git`:
+          #   * cargo install does NOT accept `-p` ("unexpected argument '-p' found")
+          #   * without `-p` it reports "multiple packages with binaries found:
+          #     zebra-fuzz-targets, zebra-utils, zebrad", because --git searches the
+          #     whole workspace for any Cargo.toml
+          # `cargo build -p` does accept it, so building from a clone avoids the
+          # whole class of problem.
           echo "Building zebrad ${ZEBRA_REV} with --features internal-miner (cold build, be patient)"
-          CARGO_TARGET_DIR="$PWD/target-zebra" cargo install --locked \
-            --git https://github.com/ZcashFoundation/zebra \
-            --rev "$ZEBRA_REV" -p zebrad --bin zebrad \
+          git clone --quiet https://github.com/ZcashFoundation/zebra zebra-src
+          git -C zebra-src checkout --quiet "$ZEBRA_REV"
+          pushd zebra-src
+          cargo build --release --locked \
+            -p zebrad --bin zebrad \
             --no-default-features \
-            --features internal-miner,release_max_level_info \
-            --root "$PWD/.zebra-install"
+            --features internal-miner,release_max_level_info
+          popd
           mkdir -p bin
-          cp .zebra-install/bin/zebrad bin/zebrad
+          cp zebra-src/target/release/zebrad bin/zebrad
           ./bin/zebrad --version
           # Prove the feature is actually present rather than trusting the build.
           if ./bin/zebrad --help 2>&1 | grep -qi "internal.miner"; then
