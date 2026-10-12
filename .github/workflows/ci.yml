@@ -185,8 +185,11 @@ jobs:
     if: ${{ !inputs.skip_zebra && (github.event_name != 'pull_request') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    env:
-      ZEBRA_REV: c1f84f3ee92a577ebaeaf5753a5f3cf261428e8e
+    # NOTE: deliberately no job-level `env:` block here. zebrad treats any
+    # ZEBRA_* environment variable as a config key, so exporting ZEBRA_REV for
+    # the whole job made zebrad parse a top-level `rev` field and abort with
+    # "unknown field `rev`". Keep zebra-specific variables scoped to the step
+    # that needs them.
     steps:
       - uses: actions/checkout@v4
 
@@ -201,12 +204,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: bin/zebrad
-          key: zebrad-${{ env.ZEBRA_REV }}-${{ runner.os }}
+          key: zebrad-c1f84f3ee92a577ebaeaf5753a5f3cf261428e8e-${{ runner.os }}
 
       - name: build zebrad with internal-miner
         if: steps.zebrad-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
+          ZEBRA_REV=c1f84f3ee92a577ebaeaf5753a5f3cf261428e8e
           # Pinned to a commit SHA. `--rev main` fails with
           #   "revspec 'main' not found; class=Reference (4); code=NotFound (-3)"
           # even though the branch exists, and a SHA also makes this build
@@ -240,6 +244,8 @@ jobs:
       - name: verify zebrad can mine
         run: |
           set -euo pipefail
+          # Clear any ZEBRA_* vars so they cannot be parsed as config keys.
+          unset $(env | grep -oE '^ZEBRA_[A-Z0-9_]+' || true)
           chmod +x bin/zebrad
           ./bin/zebrad --version
           # Prove the feature is actually present rather than trusting the build.
