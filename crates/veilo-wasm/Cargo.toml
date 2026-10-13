@@ -20,3 +20,10 @@ default = []
 # non-sapling build of this crate is useful on its own (memo size, layout
 # checks) and stays far smaller.
 sapling = ["veilo-core/sapling"]
+
+[dev-dependencies]
+# The exported logic is plain Rust, so it is unit-tested natively rather than
+# under wasm-bindgen-test. See the note in src/lib.rs.
+sapling-crypto = { version = "0.9", default-features = false, features = ["std"] }
+zcash_note_encryption = { version = "0.5.1", default-features = false, features = ["alloc"] }
+rand = "0.10"
