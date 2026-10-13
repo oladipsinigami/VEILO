@@ -75,9 +75,13 @@ fn seal_output(
 
     // AfterZip212 keeps this deterministic: the note randomness is fixed rather
     // than drawn from the rng, so a failure is reproducible.
-    let note = Note::from_parts(address, NoteValue::from_raw(value_zat), Rseed::AfterZip212([9u8; 32]));
+let note = Note::from_parts(address, NoteValue::from_raw(value_zat), Rseed::AfterZip212([9u8; 32]));
 
-    // ovk = None means the sender did not want the note recoverable; trial
+// The note commitment belongs in the output description, so read it before
+    // `sapling_note_encryption` consumes the note.
+    let cmu = note.cmu().to_bytes();
+
+// ovk = None means the sender did not want the note recoverable; trial
     // decryption by the recipient does not depend on it. Passing None keeps the
     // test from having to conjure an OutgoingViewingKey it never uses.
     let encrypted = sapling_note_encryption(None, note, memo, rng);
@@ -87,7 +91,6 @@ fn seal_output(
     // scaffolding: the auditor never constructs an output, it reads the epk
     // off the chain, so it never needs this direction at all.
     let epk = <SaplingDomain as Domain>::epk_bytes(encrypted.epk());
-    let cmu = note.cmu().to_bytes();
     let ciphertext = encrypted.encrypt_note_plaintext().0;
 
     (epk.0, cmu, ciphertext)
