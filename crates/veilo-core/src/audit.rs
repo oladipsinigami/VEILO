@@ -45,9 +45,10 @@ mod sapling {
     use sapling_crypto::keys::{IncomingViewingKey, PreparedIncomingViewingKey};
     use sapling_crypto::note::ExtractedNoteCommitment;
     use sapling_crypto::note_encryption::{
-        try_sapling_note_decryption, CompactNoteCiphertextBytes, NoteCiphertextBytes, SaplingDomain,
-        COMPACT_NOTE_SIZE, ENC_CIPHERTEXT_SIZE,
+        try_sapling_note_decryption, NoteCiphertextBytes, SaplingDomain, COMPACT_NOTE_SIZE,
+        ENC_CIPHERTEXT_SIZE,
     };
+    use zcash_note_encryption::note_bytes::NoteBytesData;
     use zcash_note_encryption::{EphemeralKeyBytes, ShieldedOutput};
 
     /// One Sapling output, exactly as it appears on chain.
@@ -62,8 +63,14 @@ mod sapling {
     /// honest about what it actually consumes.
     #[derive(Clone)]
     pub struct SaplingOutput {
-        ephemeral_key: EphemeralKeyBytes,
+        // Stored as a plain array rather than `EphemeralKeyBytes` because that
+        // type is not `Copy`, and the `ShieldedOutput` impl has to hand one out
+        // by value on every call.
+        ephemeral_key: [u8; 32],
         cmu: ExtractedNoteCommitment,
+        // `NoteCiphertextBytes` is a type ALIAS for `NoteBytesData<580>`, not a
+        // tuple struct, so this field is declared with the alias and built from
+        // `NoteBytesData`.
         enc_ciphertext: NoteCiphertextBytes,
     }
 
@@ -71,19 +78,23 @@ mod sapling {
         /// Build from the raw fields of an output description.
         ///
         /// Returns `None` if `enc_ciphertext` is not exactly
-        /// [`ENC_CIPHERTEXT_SIZE`] bytes. A short length almost always means a
-        /// *compact* output was supplied, which carries no memo and can never
-        /// be audited -- see [`COMPACT_NOTE_SIZE`].
+        /// [`ENC_CIPHERTEXT_SIZE`] bytes, or if `cmu` is not canonically
+        /// encoded. A short length almost always means a *compact* output was
+        /// supplied, which carries no memo and can never be audited -- see
+        /// [`COMPACT_NOTE_SIZE`].
         pub fn from_chain_bytes(
             ephemeral_key: [u8; 32],
             cmu: [u8; 32],
             enc_ciphertext: &[u8],
         ) -> Option<Self> {
             let enc_ciphertext: [u8; ENC_CIPHERTEXT_SIZE] = enc_ciphertext.try_into().ok()?;
+            // Enforces the consensus canonical-encoding rule for cmu rather
+            // than trusting whatever came off the wire.
+            let cmu = ExtractedNoteCommitment::from_bytes(&cmu).into_option()?;
             Some(Self {
-                ephemeral_key: EphemeralKeyBytes(ephemeral_key),
-                cmu: ExtractedNoteCommitment::from(cmu),
-                enc_ciphertext: NoteCiphertextBytes(enc_ciphertext),
+                ephemeral_key,
+                cmu,
+                enc_ciphertext: NoteBytesData(enc_ciphertext),
             })
         }
 
@@ -106,7 +117,7 @@ mod sapling {
 
     impl ShieldedOutput<SaplingDomain> for SaplingOutput {
         fn ephemeral_key(&self) -> EphemeralKeyBytes {
-            self.ephemeral_key
+            EphemeralKeyBytes(self.ephemeral_key)
         }
 
         fn cmstar(&self) -> &ExtractedNoteCommitment {
@@ -119,8 +130,8 @@ mod sapling {
             Some(&self.enc_ciphertext)
         }
 
-        fn enc_ciphertext_compact(&self) -> CompactNoteCiphertextBytes {
-            CompactNoteCiphertextBytes(
+        fn enc_ciphertext_compact(&self) -> NoteBytesData<COMPACT_NOTE_SIZE> {
+            NoteBytesData(
                 self.enc_ciphertext.0[..COMPACT_NOTE_SIZE]
                     .try_into()
                     .expect("ciphertext is longer than the compact prefix"),
@@ -148,7 +159,7 @@ mod sapling {
     /// `escrow_ivk` is the published 32-byte incoming viewing key. This
     /// function cannot spend, and does not hold any key that could.
     pub fn trial_decrypt(escrow_ivk: &[u8; 32], output: &SaplingOutput) -> Option<DecryptedBid> {
-        let ivk = IncomingViewingKey::from_bytes(escrow_ivk)?;
+        let ivk = IncomingViewingKey::from_bytes(escrow_ivk).into_option()?;
         let prepared = PreparedIncomingViewingKey::new(&ivk);
 
         let (note, _address, memo) = try_sapling_note_decryption(
@@ -158,7 +169,7 @@ mod sapling {
         )?;
 
         Some(DecryptedBid {
-            value_zat: u64::from(note.value().value()),
+            value_zat: note.value().inner(),
             memo,
         })
     }
