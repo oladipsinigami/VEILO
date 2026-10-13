@@ -187,7 +187,12 @@ fn scanning_a_range_keeps_ours_and_drops_the_rest() {
     // Two decoys from a different recipient, built off a different view key.
     let mut decoys = Vec::new();
     for seed in 1u8..=2 {
-        let other_ivk = SaplingIvk::from_bytes(&[100u8 + seed; 32]).unwrap();
+        // Byte 31 must have its top five bits clear for the scalar to fall inside
+        // {1 .. 2^251 - 1}, so fill only the low bytes and pin the top one.
+        let mut other_bytes = [0u8; 32];
+        other_bytes[..31].fill(100u8 + seed);
+        other_bytes[31] = seed;
+        let other_ivk = SaplingIvk::from_bytes(&other_bytes).unwrap();
         let address = other_ivk
             .to_payment_address(first_valid_diversifier())
             .unwrap();
