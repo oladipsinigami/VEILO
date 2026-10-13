@@ -13,8 +13,9 @@
 
 use sapling_crypto::keys::{Diversifier, SaplingIvk};
 use sapling_crypto::note::{Note, Rseed};
-use sapling_crypto::note_encryption::sapling_note_encryption;
+use sapling_crypto::note_encryption::{sapling_note_encryption, SaplingDomain};
 use sapling_crypto::value::NoteValue;
+use zcash_note_encryption::Domain;
 use veilo_core::audit::{trial_decrypt, SaplingOutput, COMPACT_NOTE_SIZE, ENC_CIPHERTEXT_SIZE};
 use veilo_core::memo::{pack_memo, MemoFields, MEMO_SIZE};
 
@@ -81,11 +82,15 @@ fn seal_output(
     // test from having to conjure an OutgoingViewingKey it never uses.
     let encrypted = sapling_note_encryption(None, note, memo, rng);
 
-    let epk = encrypted.epk().to_bytes();
+    // `EphemeralPublicKey::to_bytes` is pub(crate); the public route to the
+    // chain encoding is the Domain trait's `epk_bytes`. This is test-only
+    // scaffolding: the auditor never constructs an output, it reads the epk
+    // off the chain, so it never needs this direction at all.
+    let epk = <SaplingDomain as Domain>::epk_bytes(encrypted.epk());
     let cmu = note.cmu().to_bytes();
     let ciphertext = encrypted.encrypt_note_plaintext().0;
 
-    (epk, cmu, ciphertext)
+    (epk.0, cmu, ciphertext)
 }
 
 #[test]
