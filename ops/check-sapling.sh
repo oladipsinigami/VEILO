@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# Compile-only check for the Sapling audit path.
+# Compile AND run the Sapling audit-path tests.
 #
-# `cargo build` (not `test`) so we are not waiting on test binaries, and with
-# --features sapling to pull in sapling-crypto. Run inside the Codespace
-# because Smart App Control blocks freshly linked binaries on the Windows box.
+# Runs in the Codespace because Smart App Control blocks freshly linked binaries
+# on the Windows box, so `cargo test` there silently executes nothing.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-echo "== cargo build -p veilo-core --features sapling =="
-cargo build -p veilo-core --features sapling 2>&1 | tail -60
+echo "== cargo test -p veilo-core --features sapling --test sapling_audit =="
+cargo test -p veilo-core --features sapling --test sapling_audit 2>&1 | tail -70
 echo "exit=${PIPESTATUS[0]}"
