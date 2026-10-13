@@ -95,10 +95,12 @@ fi
 # ---- Phase 2: mint an address from the live node ------------------------
 echo
 echo "== phase 2: get a miner address =="
-ADDR=$(rpc '{"jsonrpc":"2.0","id":1,"method":"z_getnewaddress","params":["transparent"]}' \
-  | python3 -c 'import sys,json; print(json.load(sys.stdin).get("result",""))')
+ADDR_RAW=$(rpc '{"jsonrpc":"2.0","id":1,"method":"z_getnewaddress","params":["transparent"]}')
+ADDR=$(printf '%s' "$ADDR_RAW" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("result",""))' 2>/dev/null || true)
 if [ -z "$ADDR" ]; then
-  echo "z_getnewaddress failed. Is $(basename "$BIN") exposing the RPC?" >&2
+  echo "z_getnewaddress failed. Raw response:" >&2
+  echo "  ${ADDR_RAW:-<empty>}" >&2
+  echo "Is $(basename "$BIN") exposing the RPC?" >&2
   tail -20 ops/zebrad.log >&2
   exit 1
 fi
