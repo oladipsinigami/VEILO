@@ -42,7 +42,7 @@ pub const COMPACT_NOTE_SIZE: usize = 52;
 
 #[cfg(feature = "sapling")]
 mod sapling {
-    use sapling_crypto::keys::{IncomingViewingKey, PreparedIncomingViewingKey};
+    use sapling_crypto::keys::{PreparedIncomingViewingKey, SaplingIvk};
     use sapling_crypto::note::ExtractedNoteCommitment;
     use sapling_crypto::note_encryption::{
         try_sapling_note_decryption, NoteCiphertextBytes, SaplingDomain, COMPACT_NOTE_SIZE,
@@ -159,7 +159,7 @@ mod sapling {
     /// `escrow_ivk` is the published 32-byte incoming viewing key. This
     /// function cannot spend, and does not hold any key that could.
     pub fn trial_decrypt(escrow_ivk: &[u8; 32], output: &SaplingOutput) -> Option<DecryptedBid> {
-        let ivk = IncomingViewingKey::from_bytes(escrow_ivk).into_option()?;
+        let ivk = SaplingIvk::from_bytes(escrow_ivk).into_option()?;
         let prepared = PreparedIncomingViewingKey::new(&ivk);
 
         let (note, _address, memo) = try_sapling_note_decryption(
