@@ -31,9 +31,6 @@
 
 use wasm_bindgen::prelude::*;
 
-#[cfg(feature = "sapling")]
-use veilo_core::audit;
-
 /// Size of the Veilo memo envelope, in bytes.
 ///
 /// Also the full Zcash memo field: `MemoBytes` is a `Box<[u8; 512]>`, so this is
