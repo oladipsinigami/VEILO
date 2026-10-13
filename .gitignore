@@ -4,6 +4,12 @@ dist/
 *.tsbuildinfo
 .DS_Store
 
+# regtest secrets: the miner WIF is a real private key (regtest-only, but still
+# a key file that should never enter version control)
+/ops/keys/
+/bin/
+/zebra-src/
+
 # Rust build artifacts (workspace target lives at the repo root)
 /target/
 /crates/*/target/

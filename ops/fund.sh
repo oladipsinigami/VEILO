@@ -92,20 +92,25 @@ if ! alive; then
   bash ops/up.sh
 fi
 
-# ---- Phase 2: mint an address from the live node ------------------------
+# ---- Phase 2: derive a miner address offline -----------------------------
+# NOT z_getnewaddress: zebrad is a node, not a wallet, so that method returns
+# -32601 "Method not found". The address is derived from a fixed secret instead
+# (see ops/make-address.py), which also means we hold the private key and can
+# later construct spends without a wallet daemon.
 echo
-echo "== phase 2: get a miner address =="
-ADDR_RAW=$(rpc '{"jsonrpc":"2.0","id":1,"method":"z_getnewaddress","params":["transparent"]}')
-ADDR=$(printf '%s' "$ADDR_RAW" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("result",""))' 2>/dev/null || true)
+echo "== phase 2: derive a miner address =="
+python3 ops/make-address.py --selftest || exit 1
+ADDR=$(python3 ops/make-address.py) || exit 1
 if [ -z "$ADDR" ]; then
-  echo "z_getnewaddress failed. Raw response:" >&2
-  echo "  ${ADDR_RAW:-<empty>}" >&2
-  echo "Is $(basename "$BIN") exposing the RPC?" >&2
-  tail -20 ops/zebrad.log >&2
+  echo "could not derive a regtest address" >&2
   exit 1
 fi
+mkdir -p ops/keys
 echo "  $ADDR"
 echo "$ADDR" | tee ops/keys/miner_address.txt
+python3 ops/make-address.py --wif > ops/keys/miner_wif.txt
+chmod 600 ops/keys/miner_wif.txt
+echo "  (private key saved to ops/keys/miner_wif.txt -- regtest only, never commit)"
 
 # ---- Phase 3: restart with mining enabled -------------------------------
 echo
@@ -148,9 +153,21 @@ if [ "$LAST" -lt 101 ]; then
 fi
 
 echo
-echo "== balance =="
-rpc '{"jsonrpc":"2.0","id":1,"method":"z_getbalance","params":["*"]}' \
-  | python3 -c 'import sys,json; print("  spendable:", json.load(sys.stdin).get("result","?"), "ZEC")'
+echo "== mined coinbase output =="
+# z_getbalance is also a wallet method and will not exist. Read the reward
+# straight out of a block instead: that is the real evidence the chain advanced.
+TOP=$(( LAST - 1 ))
+rpc "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getblock\",\"params\":[$TOP]}" \
+  | python3 -c '
+import sys, json
+d = json.load(sys.stdin).get("result") or {}
+txs = d.get("tx") or []
+print(f"  block {d.get(\"height\")} hash={str(d.get(\"hash\"))[:24]}... txs={len(txs)}")
+for t in txs:
+    outs = t.get("vout") or []
+    for v in outs:
+        print(f"    value={v.get(\"value\")} ZEC  to={str(v.get(\"scriptPubKey\",{}).get(\"address\") or v.get(\"address\"))[:44]}")
+' 2>/dev/null || echo "  (could not parse getblock output)"
 
 echo
 echo "Regtest chain is funded. See ops/README.md for the next step."
