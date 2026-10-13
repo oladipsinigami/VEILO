@@ -12,3 +12,11 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 veilo-core = { workspace = true }
 wasm-bindgen = "0.2"
+
+[features]
+default = []
+# The browser auditor needs real Sapling decryption, so the wasm bundle carries
+# sapling-crypto. It is a separate feature rather than default because the
+# non-sapling build of this crate is useful on its own (memo size, layout
+# checks) and stays far smaller.
+sapling = ["veilo-core/sapling"]
