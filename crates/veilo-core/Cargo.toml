@@ -18,5 +18,24 @@ x25519-dalek = { version = "2.0", default-features = false, features = ["alloc",
 #   "the wasm*-unknown-unknown targets are not supported by default"
 getrandom = { version = "0.2", default-features = false, features = ["js"] }
 
+# --- Sapling audit path (Spike A / Phase 2) -------------------------------
+# Optional behind the `sapling` feature so the default build stays lean and the
+# wasm32 auditor is not forced to pull in the Zcash crypto stack until it is
+# actually needed.
+#
+# NOTE: the Sapling note-encryption API lives in `sapling-crypto`, NOT in
+# `zcash_note_encryption`. The latter only provides the generic Domain trait,
+# the AEAD, and the byte types. Trial decryption is:
+#   sapling_crypto::note_encryption::try_sapling_note_decryption(&ivk, &output, zip212)
+# which is what audit.rs uses.
+sapling-crypto = { version = "0.9", default-features = false, features = ["alloc"], optional = true }
+zcash_note_encryption = { version = "0.5.1", default-features = false, features = ["alloc"], optional = true }
+
 [features]
 default = []
+sapling = ["dep:sapling-crypto", "dep:zcash_note_encryption"]
+
+[dev-dependencies]
+sapling-crypto = { version = "0.9", default-features = false, features = ["alloc"] }
+zcash_note_encryption = { version = "0.5.1", default-features = false, features = ["alloc"] }
+rand = "0.10"
