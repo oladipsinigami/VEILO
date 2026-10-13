@@ -31,18 +31,29 @@
 network = "Regtest"
 
 [network.testnet_parameters.activation_heights]
-BeforeOverwinter = 1
-Overwinter = 2
-Sapling = 3
-Blossom = 4
-Heartwood = 5
-Canopy = 6
-NU5 = 7
-"NU6" = 8
-"NU6.1" = 9
-"NU6.2" = 10
-"NU6.3" = 11
-NU7 = 12
+# Overwinter MUST be 1. The internal miner builds the block-1 coinbase and signs
+# it with the v4 (post-Overwinter) sighash; with Overwinter at 2, block 1 is a
+# pre-Overwinter block and zebrad dies with
+#   "Signature hashing for pre-overwinter transactions is not supported."
+# from zcash_primitives/src/transaction/sighash_v4.rs.
+#
+# BeforeOverwinter is deliberately ABSENT. zebra's RegtestParameters::for_regtest()
+# does `overwinter = overwinter.or(before_overwinter).or(Some(1))` and otherwise
+# discards before_overwinter, so listing BeforeOverwinter = 1 alongside
+# Overwinter = 2 only produced a broken pre-Overwinter block 1.
+#
+# NU6.x keys need quoting because a bare NU6.1 is invalid TOML.
+Overwinter = 1
+Sapling = 2
+Blossom = 3
+Heartwood = 4
+Canopy = 5
+NU5 = 6
+"NU6" = 7
+"NU6.1" = 8
+"NU6.2" = 9
+"NU6.3" = 10
+NU7 = 11
 
 # Non-persistent chain state: every restart is a clean chain, which is what a
 # deterministic demo wants.

@@ -154,6 +154,36 @@ for (let i = 1; i < values.length; i++) {
     );
   }
 }
+// --- Overwinter must be activated at height 1 -----------------------------
+// The internal miner signs the block-1 coinbase with the v4 sighash, which only
+// exists after Overwinter. With Overwinter >= 2 the very first mined block is a
+// pre-Overwinter block and zebrad aborts with:
+//   "Signature hashing for pre-overwinter transactions is not supported."
+// Strictly-increasing heights alone do not catch this, so assert it directly.
+const heightOf = (key) => values.find((v) => v.key === key)?.value;
+const ow = heightOf("Overwinter");
+if (ow === undefined) {
+  errors.push(
+    "activation_heights is missing Overwinter. On regtest, omitting it lets " +
+      "zebrad default it to 1, which is correct; setting it to 2 or more breaks " +
+      "block-1 mining."
+  );
+} else if (ow !== 1) {
+  errors.push(
+    `Overwinter must be 1 (found ${ow}). The internal miner's block-1 coinbase ` +
+      `needs the v4 sighash, which panics on pre-Overwinter blocks.`
+  );
+}
+// BeforeOverwinter is ignored by zebra's for_regtest() except as a fallback for
+// Overwinter, so listing it alongside Overwinter only invites this confusion.
+if (ahKeys.includes("BeforeOverwinter")) {
+  errors.push(
+    "BeforeOverwinter should not be set explicitly on regtest: zebra's " +
+      "RegtestParameters::for_regtest() ignores it except via " +
+      "overwinter.or(before_overwinter)."
+  );
+}
+
 // If a miner_address IS present it must at least look like a Zcash address.
 // A placeholder will be rejected by zebrad with a Base58Check parse error.
 const minerLine = raw
