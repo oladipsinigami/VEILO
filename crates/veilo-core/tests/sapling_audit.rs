@@ -196,9 +196,9 @@ fn scanning_a_range_keeps_ours_and_drops_the_rest() {
             NoteValue::from_raw(7 * seed as u64),
             Rseed::AfterZip212([seed; 32]),
         );
+        let cmu = note.cmu().to_bytes();
         let enc = sapling_note_encryption(None, note, [seed; 512], &mut rng);
         let epk = <SaplingDomain as Domain>::epk_bytes(enc.epk());
-        let cmu = note.cmu().to_bytes();
         let ct = enc.encrypt_note_plaintext().0;
         decoys.push(SaplingOutput::from_chain_bytes(epk.0, cmu, &ct).unwrap());
     }
