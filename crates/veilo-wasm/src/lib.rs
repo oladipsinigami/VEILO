@@ -60,7 +60,7 @@ pub fn compact_note_size() -> usize {
 
 #[cfg(feature = "sapling")]
 mod core {
-    use super::veilo_core::audit;
+    use veilo_core::audit;
 
     /// Why an audit could not be completed.
     ///
@@ -217,8 +217,6 @@ pub fn audit_output(
     cmu: &[u8],
     enc_ciphertext: &[u8],
 ) -> Result<String, JsError> {
-    use core::{audit_one, AuditError};
-
     core::audit_one(escrow_ivk, ephemeral_key, cmu, enc_ciphertext)
         .map(|json| json.unwrap_or_else(|| "null".to_string()))
         .map_err(|e| JsError::new(&e.to_string()))
@@ -232,9 +230,6 @@ pub fn audit_output(
 #[cfg(feature = "sapling")]
 #[wasm_bindgen]
 pub fn audit_range(escrow_ivk: &[u8], outputs: &[u8]) -> Result<String, JsError> {
-    use core::{audit_range, AuditError};
-
-    let _ = AuditError::CompactCiphertext; // keep the variant reachable in this build
     core::audit_range(escrow_ivk, outputs).map_err(|e| JsError::new(&e.to_string()))
 }
 

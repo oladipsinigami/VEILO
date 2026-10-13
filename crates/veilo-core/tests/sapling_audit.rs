@@ -11,6 +11,11 @@
 //! Run with:
 //!   cargo test -p veilo-core --features sapling --test sapling_audit
 
+// Everything below needs the `sapling` feature. Without the gate, a plain
+// `cargo test -p veilo-core` fails to compile this file rather than skipping
+// it, which makes the default (cheap) build fail for no good reason.
+#![cfg(feature = "sapling")]
+
 use sapling_crypto::keys::{Diversifier, SaplingIvk};
 use sapling_crypto::note::{Note, Rseed};
 use sapling_crypto::note_encryption::{sapling_note_encryption, SaplingDomain};
