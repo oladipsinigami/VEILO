@@ -67,25 +67,31 @@ cookie_creds() {
 LAST_RESP=""
 LAST_CODE=""
 LAST_EXIT=""
+OK_PORT=""
 for i in $(seq 1 60); do
   auth=()
-  if creds=$(cookie_creds); then auth=(-u "$creds"); fi
-  # getblockcount is an INDEXER method. It only exists on indexer_listen_addr,
-  # never on the main rpc listen_addr.
-  # `|| true`: curl's exit status must not trip `set -e` mid-startup.
-  # stderr is folded into the response so the failure message shows curl's own
-  # complaint instead of a bare exit code.
-  LAST_RESP=$(curl -sS --max-time 3 "${auth[@]}" "http://127.0.0.1:${IDX_PORT}" \
-       -H 'content-type: application/json' \
-       --data '{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}' \
-       -w '\n%{http_code}' 2>&1) && LAST_EXIT=0 || LAST_EXIT=$?
-  LAST_CODE=$(printf '%s' "$LAST_RESP" | tail -n1)
-  LAST_RESP=$(printf '%s' "$LAST_RESP" | sed '$d')
-  if printf '%s' "$LAST_RESP" | grep -q '"result"'; then
-    echo "zebrad is up after ${i}s (height ${LAST_RESP})"
-    ./"$ZEBRA_BIN" --version 2>/dev/null || true
-    exit 0
-  fi
+  creds=$(cookie_creds) || creds=""
+  if [ -n "$creds" ]; then auth=(-u "$creds"); fi
+  # Try the main rpc port first, then the indexer port. Which one exposes
+  # getblockcount depends on the zebra build, and the indexer port does not
+  # always answer HTTP here -- probing both removes the guesswork.
+  for port in "$RPC_PORT" "$IDX_PORT"; do
+    # `|| true`: curl's exit status must not trip `set -e` mid-startup.
+    # stderr is folded in so the failure message shows curl's own complaint.
+    LAST_RESP=$(curl -sS --max-time 3 "${auth[@]}" "http://127.0.0.1:${port}" \
+         -H 'content-type: application/json' \
+         --data '{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}' \
+         -w '\n%{http_code}' 2>&1) && LAST_EXIT=0 || LAST_EXIT=$?
+    LAST_CODE=$(printf '%s' "$LAST_RESP" | tail -n1)
+    LAST_RESP=$(printf '%s' "$LAST_RESP" | sed '$d')
+    if printf '%s' "$LAST_RESP" | grep -q '"result"'; then
+      OK_PORT="$port"
+      echo "zebrad is up after ${i}s on port ${OK_PORT} (height ${LAST_RESP})"
+      ./"$ZEBRA_BIN" --version 2>/dev/null || true
+      echo "$OK_PORT" > ops/rpc-port
+      exit 0
+    fi
+  done
   sleep 1
 done
 
