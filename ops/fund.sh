@@ -44,8 +44,12 @@ auth_array() {
 }
 
 call() { # call <url> <json>
-  local a=()
-  if creds=$(auth_array); then a=(-u "$creds"); fi
+  local a=() creds=""
+  # Guard on NON-EMPTY, not just exit status: auth_array returns 0 with empty
+  # output when there is no cookie, and `-u ""` makes curl prompt interactively
+  # for a password ("Enter host password for user ''") and then fail.
+  creds=$(auth_array) || creds=""
+  if [ -n "$creds" ]; then a=(-u "$creds"); fi
   # `|| true`: curl's exit status must not trip `set -e` mid-startup.
   curl -s --max-time 15 "${a[@]}" "$1" -H 'content-type: application/json' \
     --data "$2" || true

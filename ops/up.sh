@@ -99,5 +99,13 @@ fi
 echo "last indexer RPC: curl_exit=$LAST_EXIT http_code=${LAST_CODE:-<none>}" >&2
 echo "raw: ${LAST_RESP:-<empty>}" >&2
 echo "URL was: [http://127.0.0.1:${IDX_PORT}]  auth=[${auth[*]:-<none>}]" >&2
+# Show the literal bytes the server sends. curl reporting "HTTP/0.9" means the
+# status line is not parseable, which nc makes obvious.
+echo "--- raw socket dump ---" >&2
+BODY='{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}'
+printf 'POST / HTTP/1.1\r\nHost: 127.0.0.1\r\ncontent-type: application/json\r\ncontent-length: %s\r\n\r\n%s' \
+  "${#BODY}" "$BODY" | timeout 3 nc 127.0.0.1 "$IDX_PORT" 2>/dev/null | head -c 400 >&2 || true
+echo >&2
+echo "--- end raw socket dump ---" >&2
 tail -15 "$LOG" >&2
 exit 1
