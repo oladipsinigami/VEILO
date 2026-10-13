@@ -28,7 +28,7 @@ getrandom = { version = "0.2", default-features = false, features = ["js"] }
 # the AEAD, and the byte types. Trial decryption is:
 #   sapling_crypto::note_encryption::try_sapling_note_decryption(&ivk, &output, zip212)
 # which is what audit.rs uses.
-sapling-crypto = { version = "0.9", default-features = false, features = ["alloc"], optional = true }
+sapling-crypto = { version = "0.9", default-features = false, features = ["std"], optional = true }
 zcash_note_encryption = { version = "0.5.1", default-features = false, features = ["alloc"], optional = true }
 
 [features]
@@ -36,6 +36,6 @@ default = []
 sapling = ["dep:sapling-crypto", "dep:zcash_note_encryption"]
 
 [dev-dependencies]
-sapling-crypto = { version = "0.9", default-features = false, features = ["alloc"] }
+sapling-crypto = { version = "0.9", default-features = false, features = ["std"] }
 zcash_note_encryption = { version = "0.5.1", default-features = false, features = ["alloc"] }
 rand = "0.10"
