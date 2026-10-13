@@ -107,3 +107,28 @@ Once funded, the auditor's input is real Zcash note ciphertexts produced by
 
 Step 4 is the one that needs a node, and it is the core novelty: a browser recomputing an
 auction outcome from raw chain ciphertexts.
+
+## Known limitation: zebrad cannot mine block 1 on regtest (zebra #8434)
+
+Verified on zebrad `c1f84f3ee92a577ebaeaf5753a5f3cf261428e8e` (7.0.0-rc.0).
+
+The node boots, accepts the derived miner address, and serves RPC. **Mining
+block 1 does not work**, and it is not a config mistake. Three separate zebra
+behaviours all land on height 1:
+
+| Requirement | Why | Where |
+|---|---|---|
+| `Overwinter == 1` | the block-1 coinbase is signed with the v4 sighash | `zcash_primitives` `sighash_v4.rs:255` panics on pre-Overwinter |
+| `Heartwood == 1` | block 1 is the only block with no stored chain history root; `DefaultRoots::from_coinbase` substitutes the reserved root only when `Heartwood.activation_height == height` | `zebra-rpc/src/methods/types/default_roots.rs:70` panics with "history root is required for block templates" |
+| `Canopy == 1` | zebra cannot construct pre-Canopy coinbase transactions or block templates (open upstream issue) | `zebra-state` exits with "Zebra does not support generating pre-Canopy block templates" |
+
+`Heartwood == 1` and `Canopy == 1` are mutually exclusive: activation heights
+are a `BTreeMap<Height, NetworkUpgrade>`, so two upgrades at one height collide
+and the later one silently overwrites the earlier. Each of the three panics was
+reproduced and fixed in turn before the next surfaced.
+
+**Consequence for Veilo:** zebrad is a node, not a wallet. It also returns
+`-32601 Method not found` for `z_getnewaddress`, `z_getbalance` and
+`z_sendmany`, so it could never fund a wallet, create a shielded address, or
+put a memo in a shielded output. A real end-to-end demo needs a wallet-capable
+node; `zcashd` is the next step. See VEILO_BLUEPRINT.md.

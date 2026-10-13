@@ -96,6 +96,29 @@ for i in $(seq 1 60); do
 done
 
 echo "zebrad did not come up in 60s." >&2
+# Distinguish "we wrote a broken config" from "zebrad cannot do this at all".
+if grep -q "pre-Canopy block templates" "$LOG" 2>/dev/null; then
+cat >&2 <<'EOF'
+
+KNOWN UPSTREAM LIMITATION (zebra #8434), not a config error.
+
+  zebrad cannot construct pre-Canopy coinbase transactions or block templates.
+  Mining block 1 on regtest needs BOTH:
+    * Heartwood at height 1 -- block 1 is the only block with no stored chain
+      history root, and DefaultRoots only substitutes the reserved root when
+      Heartwood.activation_height == 1.
+    * Canopy at height 1     -- anything pre-Canopy hits the panic above.
+  Activation heights are a BTreeMap<Height, NetworkUpgrade>, so two upgrades at
+  the same height collide and the later one silently wins. Heartwood and Canopy
+  therefore cannot BOTH be 1, and block 1 is unminable on this zebrad commit.
+
+  The node itself is fine -- phases 1 and 2 work and the derived address is
+  accepted. Only mining is blocked.
+EOF
+fi
+if grep -q "history root is required for block templates" "$LOG" 2>/dev/null; then
+  echo "KNOWN UPSTREAM LIMITATION: no chain history root at height 1 (see zebra #8434)." >&2
+fi
 if cf=$(cookie_file); then
   echo "auth cookie found at: $cf" >&2
 else
