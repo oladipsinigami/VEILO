@@ -51,15 +51,13 @@ for i in $(seq 1 60); do
   if cf=$(cookie_file); then auth=(-u "cookie:$(cat "$cf")"); fi
   # getblockcount is an INDEXER method. It only exists on indexer_listen_addr,
   # never on the main rpc listen_addr.
-  # `set -e` kills the script on ANY failing command, and a bare
-  # `VAR=$(curl ...)` is such a command: connection-refused on the very first
-  # poll (the node has not bound the port yet) would abort with exit 7 and print
-  # no diagnostics at all. The `&& ... || ...` form captures the real exit code
-  # without tripping `set -e`.
-  LAST_RESP=$(curl -s --max-time 3 "${auth[@]}" "http://127.0.0.1:${IDX_PORT}" \
+  # `|| true`: curl's exit status must not trip `set -e` mid-startup.
+  # stderr is folded into the response so the failure message shows curl's own
+  # complaint instead of a bare exit code.
+  LAST_RESP=$(curl -sS --max-time 3 "${auth[@]}" "http://127.0.0.1:${IDX_PORT}" \
        -H 'content-type: application/json' \
        --data '{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}' \
-       -w '\n%{http_code}' 2>/dev/null) && LAST_EXIT=0 || LAST_EXIT=$?
+       -w '\n%{http_code}' 2>&1) && LAST_EXIT=0 || LAST_EXIT=$?
   LAST_CODE=$(printf '%s' "$LAST_RESP" | tail -n1)
   LAST_RESP=$(printf '%s' "$LAST_RESP" | sed '$d')
   if printf '%s' "$LAST_RESP" | grep -q '"result"'; then
@@ -77,6 +75,8 @@ else
   echo "NO AUTH COOKIE FOUND. Searched: \$ZEBO_COOKIE, \$HOME/.cache/zebra/.cookie, $PWD/ops/zebra.cookie" >&2
   echo "(zebrad writes it only after binding the port; cookie_dir comes from the config)" >&2
 fi
-echo "last indexer RPC: curl_exit=$LAST_EXIT http_code=${LAST_CODE:-<none>} body=${LAST_RESP:-<empty>}" >&2
+echo "last indexer RPC: curl_exit=$LAST_EXIT http_code=${LAST_CODE:-<none>}" >&2
+echo "raw: ${LAST_RESP:-<empty>}" >&2
+echo "URL was: [http://127.0.0.1:${IDX_PORT}]  auth=[${auth[*]:-<none>}]" >&2
 tail -15 "$LOG" >&2
 exit 1
