@@ -135,6 +135,21 @@ jobs:
       - name: test
         run: cargo test --all --verbose
 
+      # The audit path is behind the `sapling` feature, so `--all` above does NOT
+      # build it. Without this step the trial-decryption tests would never run in
+      # CI, and the browser auditor could rot unnoticed.
+      - name: test the sapling audit path
+        run: cargo test -p veilo-core --features sapling --test sapling_audit --verbose
+
+      - name: test the wasm auditor exports
+        run: cargo test -p veilo-wasm --features sapling --verbose
+
+      - name: clippy with the sapling feature
+        run: cargo clippy --workspace --all-targets --features veilo-core/sapling -- -D warnings
+
+      - name: build the browser auditor
+        run: cargo build -p veilo-wasm --features sapling --target wasm32-unknown-unknown
+
   # ---------------------------------------------------------------------------
   # 3. The browser auditor target: veilo-core -> wasm32-unknown-unknown
   # ---------------------------------------------------------------------------
