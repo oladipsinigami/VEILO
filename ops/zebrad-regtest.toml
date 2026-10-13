@@ -60,6 +60,14 @@ listen_addr = "0.0.0.0:8232"
 # height probe returns "method not found" no matter how it is authenticated.
 indexer_listen_addr = "127.0.0.1:8233"
 
+# Cookie auth off. This is an ephemeral regtest node with no peers and no funds;
+# there is nothing to protect, and cookie auth makes every client call fail in
+# confusing ways (zebrad answers an unauthenticated indexer request with a
+# non-HTTP response, which curl reports as "Received HTTP/0.9 when not allowed").
+# ops/up.sh and ops/fund.sh still send the cookie when one exists, so turning
+# this back on needs no script changes.
+enable_cookie_auth = false
+
 # `internal_miner` belongs INSIDE [mining]; there is no top-level [internal_miner]
 # table. It is also gated on the cargo feature `internal-miner`: in
 # zebra-rpc/src/config/mining.rs, `is_internal_miner_enabled` is

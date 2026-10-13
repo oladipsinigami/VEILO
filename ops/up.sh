@@ -43,12 +43,33 @@ cookie_file() {
   return 1
 }
 
+# Zebra's cookie file contains "__cookie__:<token>". HTTP Basic wants those split
+# into username/password, so the prefix must be stripped -- sending the whole line
+# as the password under username "cookie" does not authenticate. The cookie is
+# written only after the node binds the port, so it is re-resolved every poll.
+cookie_file() {
+  for c in "${ZEBO_COOKIE:-}" "$HOME/.cache/zebra/.cookie" "$PWD/ops/zebra.cookie"; do
+    if [ -n "$c" ] && [ -s "$c" ]; then echo "$c"; return 0; fi
+  done
+  return 1
+}
+
+cookie_creds() {
+  local cf line
+  cf=$(cookie_file) || return 1
+  IFS= read -r line < "$cf" || return 1
+  case "$line" in
+    __cookie__:*) printf '%s' "__cookie__:${line#__cookie__:}" ;;
+    *)            printf '%s' "$line" ;;
+  esac
+}
+
 LAST_RESP=""
 LAST_CODE=""
 LAST_EXIT=""
 for i in $(seq 1 60); do
   auth=()
-  if cf=$(cookie_file); then auth=(-u "cookie:$(cat "$cf")"); fi
+  if creds=$(cookie_creds); then auth=(-u "$creds"); fi
   # getblockcount is an INDEXER method. It only exists on indexer_listen_addr,
   # never on the main rpc listen_addr.
   # `|| true`: curl's exit status must not trip `set -e` mid-startup.

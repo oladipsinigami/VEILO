@@ -33,12 +33,19 @@ cookie_file() {
 # `set -e` a failing `&&` list aborts the script, so when no cookie exists yet the
 # shell would exit silently instead of just making an unauthenticated call.
 auth_array() {
-  if cf=$(cookie_file); then echo "-u cookie:$(cat "$cf")"; fi
+  if cf=$(cookie_file); then
+    local line
+    IFS= read -r line < "$cf" || return 0
+    case "$line" in
+      __cookie__:*) printf '%s' "__cookie__:${line#__cookie__:}" ;;
+      *)            printf '%s' "$line" ;;
+    esac
+  fi
 }
 
 call() { # call <url> <json>
   local a=()
-  if cf=$(cookie_file); then a=(-u "cookie:$(cat "$cf")"); fi
+  if creds=$(auth_array); then a=(-u "$creds"); fi
   # `|| true`: curl's exit status must not trip `set -e` mid-startup.
   curl -s --max-time 15 "${a[@]}" "$1" -H 'content-type: application/json' \
     --data "$2" || true
