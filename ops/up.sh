@@ -51,10 +51,15 @@ for i in $(seq 1 60); do
   if cf=$(cookie_file); then auth=(-u "cookie:$(cat "$cf")"); fi
   # getblockcount is an INDEXER method. It only exists on indexer_listen_addr,
   # never on the main rpc listen_addr.
+  # `set -e` kills the script on ANY failing command, and a bare
+  # `VAR=$(curl ...)` is such a command: connection-refused on the very first
+  # poll (the node has not bound the port yet) would abort with exit 7 and print
+  # no diagnostics at all. The `&& ... || ...` form captures the real exit code
+  # without tripping `set -e`.
   LAST_RESP=$(curl -s --max-time 3 "${auth[@]}" "http://127.0.0.1:${IDX_PORT}" \
        -H 'content-type: application/json' \
        --data '{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}' \
-       -w '\n%{http_code}' 2>/dev/null); LAST_EXIT=$?
+       -w '\n%{http_code}' 2>/dev/null) && LAST_EXIT=0 || LAST_EXIT=$?
   LAST_CODE=$(printf '%s' "$LAST_RESP" | tail -n1)
   LAST_RESP=$(printf '%s' "$LAST_RESP" | sed '$d')
   if printf '%s' "$LAST_RESP" | grep -q '"result"'; then

@@ -21,17 +21,21 @@ ZEBRA_BIN="zebrad-${ZEBRA_VERSION}-x86_64-unknown-linux-gnu"
 mkdir -p bin
 if [ ! -x "bin/${ZEBRA_BIN}" ]; then
   BASE="https://github.com/ZcashFoundation/zebra/releases/download/v${ZEBRA_VERSION}"
-  # NOTE: the release ships a prebuilt binary WITHOUT the experimental internal-miner
-  # feature. If `generate` blocks are unavailable after download, rebuild from source:
-  #   cargo install --git https://github.com/ZcashFoundation/zebra --locked \
-  #     --bin zebrad --features internal-miner
+  # NOTE: this prebuilt binary is NOT built with the experimental `internal-miner`
+  # cargo feature, so `generate` is unavailable on regtest and fund.sh cannot mine.
+  # That is the whole reason ops/build-zebra.sh exists. Do not try to fix it with
+  # `cargo install --git`: cargo install rejects `-p`, and without `-p` it errors
+  # with "multiple packages with binaries found".
   curl -fsSL -o "bin/${ZEBRA_BIN}" "${BASE}/${ZEBRA_BIN}.tar.gz" 2>/dev/null \
     || echo "  (download failed - see ops/README.md for the source-build fallback)"
 fi
 
 if [ -f "bin/${ZEBRA_BIN}" ]; then
   tar -xzf "bin/${ZEBRA_BIN}" -C bin 2>/dev/null || true
-  [ -f "bin/zebrad" ] && chmod +x bin/zebrad
+  # `if`, not `[ ... ] && chmod`: under `set -e` a failing `&&` list aborts the
+  # whole bootstrap, and bin/zebrad is legitimately absent when the tarball did
+  # not contain it.
+  if [ -f "bin/zebrad" ]; then chmod +x bin/zebrad; fi
   ls -la bin/zebrad 2>/dev/null || true
 fi
 

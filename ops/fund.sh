@@ -28,20 +28,27 @@ cookie_file() {
 
 # Cookie auth is mandatory: with enable_cookie_auth = true (the default) zebrad
 # rejects unauthenticated JSON-RPC, so every call here must carry the cookie.
-auth_args() {
-  if cf=$(cookie_file); then printf '%s' "-u cookie:$(cat "$cf")"; fi
+#
+# Both helpers build the auth array with `if`, never with `[ ... ] && x=()`. Under
+# `set -e` a failing `&&` list aborts the script, so when no cookie exists yet the
+# shell would exit silently instead of just making an unauthenticated call.
+auth_array() {
+  if cf=$(cookie_file); then echo "-u cookie:$(cat "$cf")"; fi
+}
+
+call() { # call <url> <json>
+  local a=()
+  if cf=$(cookie_file); then a=(-u "cookie:$(cat "$cf")"); fi
+  # `|| true`: curl's exit status must not trip `set -e` mid-startup.
+  curl -s --max-time 15 "${a[@]}" "$1" -H 'content-type: application/json' \
+    --data "$2" || true
 }
 
 # Wallet/chain methods live on the main rpc port...
-rpc() {
-  local a=(); [ -n "$(auth_args)" ] && a=(-u "cookie:$(cat "$(cookie_file)")")
-  curl -s --max-time 15 "${a[@]}" "$RPC" -H 'content-type: application/json' --data "$1"
-}
+rpc() { call "$RPC" "$1"; }
 # ...but getblockcount is an indexer method and only exists on indexer_listen_addr.
-idx() {
-  local a=(); [ -n "$(auth_args)" ] && a=(-u "cookie:$(cat "$(cookie_file)")")
-  curl -s --max-time 15 "${a[@]}" "$IDX" -H 'content-type: application/json' --data "$1"
-}
+idx() { call "$IDX" "$1"; }
+
 height() {
   idx '{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}' \
     | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("result",0))' 2>/dev/null || echo 0

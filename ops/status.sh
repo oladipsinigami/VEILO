@@ -22,7 +22,7 @@ if [ -f bin/zebrad ]; then ok "bin/zebrad present"; else bad "bin/zebrad MISSING
 if [ -f ops/zebrad.pid ] && kill -0 "$(cat ops/zebrad.pid)" 2>/dev/null; then
   ok "running (pid $(cat ops/zebrad.pid))"
   # getblockcount is an indexer method -> indexer_listen_addr, and cookie auth applies.
-  A=(); [ -s "$HOME/.cache/zebra/.cookie" ] && A=(-u "cookie:$(cat "$HOME/.cache/zebra/.cookie")")
+  A=(); if [ -s "$HOME/.cache/zebra/.cookie" ]; then A=(-u "cookie:$(cat "$HOME/.cache/zebra/.cookie")"); fi
   H=$(curl -s --max-time 3 "${A[@]}" "http://127.0.0.1:${ZEBO_INDEXER_PORT:-8233}" \
         -H 'content-type: application/json' \
         --data '{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}' \
