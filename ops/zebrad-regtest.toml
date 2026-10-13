@@ -31,29 +31,39 @@
 network = "Regtest"
 
 [network.testnet_parameters.activation_heights]
-# Overwinter MUST be 1. The internal miner builds the block-1 coinbase and signs
-# it with the v4 (post-Overwinter) sighash; with Overwinter at 2, block 1 is a
-# pre-Overwinter block and zebrad dies with
-#   "Signature hashing for pre-overwinter transactions is not supported."
-# from zcash_primitives/src/transaction/sighash_v4.rs.
+# Two upstream constraints on zebra's block-template path both bite at height 1:
 #
-# BeforeOverwinter is deliberately ABSENT. zebra's RegtestParameters::for_regtest()
-# does `overwinter = overwinter.or(before_overwinter).or(Some(1))` and otherwise
-# discards before_overwinter, so listing BeforeOverwinter = 1 alongside
-# Overwinter = 2 only produced a broken pre-Overwinter block 1.
+#  1. The coinbase for block 1 is signed with the v4 sighash, which only exists
+#     after Overwinter. With Overwinter above 1, block 1 is a pre-Overwinter
+#     block and zebrad aborts with "Signature hashing for pre-overwinter
+#     transactions is not supported" (zcash_primitives sighash_v4.rs:255).
 #
+#  2. Block templates need a chain history root. Zebra only stores one every
+#     128 blocks, plus at the Heartwood activation height. Block 1 therefore
+#     only has a root if Heartwood activates at height 1, where
+#     DefaultRoots::from_coinbase substitutes CHAIN_HISTORY_ACTIVATION_RESERVED.
+#     Otherwise zebrad aborts with "history root is required for block templates".
+#
+# Activation heights are a BTreeMap<Height, NetworkUpgrade>, so two upgrades at
+# the same height COLLIDE and the later one silently wins. The listed order is
+# therefore load-bearing: Heartwood is last among the height-1 entries, so the
+# map really does contain {1: Heartwood} and Heartwood.activation_height() is
+# Some(1). Moving Canopy or any NU below would overwrite it and bring the
+# history-root panic straight back.
+#
+# Heights only need to be non-decreasing; zebra rejects height < previous.
 # NU6.x keys need quoting because a bare NU6.1 is invalid TOML.
 Overwinter = 1
-Sapling = 2
-Blossom = 3
-Heartwood = 4
-Canopy = 5
-NU5 = 6
-"NU6" = 7
-"NU6.1" = 8
-"NU6.2" = 9
-"NU6.3" = 10
-NU7 = 11
+Sapling = 1
+Blossom = 1
+Heartwood = 1
+Canopy = 2
+NU5 = 3
+"NU6" = 4
+"NU6.1" = 5
+"NU6.2" = 6
+"NU6.3" = 7
+NU7 = 8
 
 # Non-persistent chain state: every restart is a clean chain, which is what a
 # deterministic demo wants.

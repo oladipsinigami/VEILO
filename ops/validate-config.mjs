@@ -137,7 +137,10 @@ const rpcKeys = check("rpc", RPC_KEYS, RPC_KEYS);
 check("mining", MINING_KEYS, MINING_KEYS);
 check("state", STATE_KEYS, STATE_KEYS);
 
-// --- activation heights must be strictly increasing ----------------------
+// --- activation heights must be non-decreasing -----------------------------
+// zebra rejects `height < previous_height`, but EQUAL heights are allowed: the
+// map is BTreeMap<Height, NetworkUpgrade>, so two upgrades at one height
+// collide and the later one silently wins. That is load-bearing here.
 const ordered = ACTIVATION_HEIGHTS.filter((k) => ahKeys.includes(k));
 if (ordered.length !== ahKeys.length) {
   errors.push("activation height order does not match the canonical upgrade order");
@@ -148,34 +151,41 @@ for (const rawLine of raw.split("\n")) {
   if (m) values.push({ key: m[2] ?? m[3], value: Number(m[4]) });
 }
 for (let i = 1; i < values.length; i++) {
-  if (values[i].value <= values[i - 1].value) {
+  if (values[i].value < values[i - 1].value) {
     errors.push(
-      `activation heights must be strictly increasing: ${values[i - 1].key}=${values[i - 1].value} then ${values[i].key}=${values[i].value}`
+      `activation heights must be non-decreasing: ${values[i - 1].key}=${values[i - 1].value} then ${values[i].key}=${values[i].value}`
     );
   }
 }
-// --- Overwinter must be activated at height 1 -----------------------------
-// The internal miner signs the block-1 coinbase with the v4 sighash, which only
-// exists after Overwinter. With Overwinter >= 2 the very first mined block is a
-// pre-Overwinter block and zebrad aborts with:
-//   "Signature hashing for pre-overwinter transactions is not supported."
-// Strictly-increasing heights alone do not catch this, so assert it directly.
+
+// --- Heartwood must be the surviving upgrade at height 1 ------------------
+// Both of zebra's block-template constraints land on block 1:
+//   * the coinbase is signed with the v4 sighash, so Overwinter must be active
+//   * a chain history root is required, and zebra only has one at height 1 if
+//     Heartwood activates there (DefaultRoots substitutes the reserved root)
+// Anything configured at height 1 AFTER Heartwood overwrites it and restores
+// the "history root is required for block templates" panic.
 const heightOf = (key) => values.find((v) => v.key === key)?.value;
-const ow = heightOf("Overwinter");
-if (ow === undefined) {
+if (heightOf("Overwinter") !== 1) {
   errors.push(
-    "activation_heights is missing Overwinter. On regtest, omitting it lets " +
-      "zebrad default it to 1, which is correct; setting it to 2 or more breaks " +
-      "block-1 mining."
-  );
-} else if (ow !== 1) {
-  errors.push(
-    `Overwinter must be 1 (found ${ow}). The internal miner's block-1 coinbase ` +
-      `needs the v4 sighash, which panics on pre-Overwinter blocks.`
+    `Overwinter must be 1 (found ${heightOf("Overwinter") ?? "unset"}). The block-1 ` +
+      `coinbase needs the v4 sighash; pre-Overwinter blocks panic.`
   );
 }
-// BeforeOverwinter is ignored by zebra's for_regtest() except as a fallback for
-// Overwinter, so listing it alongside Overwinter only invites this confusion.
+if (heightOf("Heartwood") !== 1) {
+  errors.push(
+    `Heartwood must be 1 (found ${heightOf("Heartwood") ?? "unset"}). Block 1 only has a ` +
+      `chain history root when Heartwood activates there.`
+  );
+}
+const atOne = values.filter((v) => v.value === 1).map((v) => v.key);
+const lastAtOne = atOne[atOne.length - 1];
+if (lastAtOne && lastAtOne !== "Heartwood") {
+  errors.push(
+    `${lastAtOne} is configured at height 1 after Heartwood and would overwrite it. ` +
+      `Equal heights collide in zebra's BTreeMap, so Heartwood must be the last height-1 entry.`
+  );
+}
 if (ahKeys.includes("BeforeOverwinter")) {
   errors.push(
     "BeforeOverwinter should not be set explicitly on regtest: zebra's " +
@@ -183,7 +193,6 @@ if (ahKeys.includes("BeforeOverwinter")) {
       "overwinter.or(before_overwinter)."
   );
 }
-
 // If a miner_address IS present it must at least look like a Zcash address.
 // A placeholder will be rejected by zebrad with a Base58Check parse error.
 const minerLine = raw
