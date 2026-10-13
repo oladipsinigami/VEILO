@@ -132,13 +132,11 @@ mod core {
     }
 
     fn array32(bytes: &[u8], field: &'static str) -> Result<[u8; 32], AuditError> {
-        bytes
-            .try_into()
-            .map_err(|_| AuditError::BadLength {
-                field,
-                got: bytes.len(),
-                want: 32,
-            })
+        bytes.try_into().map_err(|_| AuditError::BadLength {
+            field,
+            got: bytes.len(),
+            want: 32,
+        })
     }
 
     /// Audit a single output. `Ok(None)` means "not ours" -- a valid answer.
@@ -187,12 +185,9 @@ mod core {
 
         let mut found: Vec<String> = Vec::new();
         for record in outputs.chunks_exact(RECORD_LEN) {
-            if let Some(json) = audit_one(
-                escrow_ivk,
-                &record[0..32],
-                &record[32..64],
-                &record[64..],
-            )? {
+            if let Some(json) =
+                audit_one(escrow_ivk, &record[0..32], &record[32..64], &record[64..])?
+            {
                 found.push(json);
             }
         }
@@ -304,7 +299,9 @@ mod tests {
         // Hand-check the JSON rather than trusting JSON.parse on the other side.
         assert!(json.starts_with('{') && json.ends_with('}'));
         assert!(json.contains(r#""value_zat":1234"#));
-        assert!(json.contains(r#""bid_commit":"d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4"#));
+        assert!(json.contains(
+            r#""bid_commit":"d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4"#
+        ));
         assert!(json.contains(&format!(r#""auction_id":"{}""#, "a1".repeat(16))));
     }
 
@@ -355,14 +352,21 @@ mod tests {
 
         let json = audit_range(&IVK, &records).unwrap();
         assert!(json.starts_with('[') && json.ends_with(']'));
-        assert_eq!(json.matches(r#""value_zat""#).count(), 1, "only ours survives");
+        assert_eq!(
+            json.matches(r#""value_zat""#).count(),
+            1,
+            "only ours survives"
+        );
     }
 
     #[test]
     fn range_rejects_a_ragged_buffer() {
         assert!(matches!(
             audit_range(&IVK, &[0u8; RECORD_LEN + 1]),
-            Err(AuditError::BadLength { field: "outputs", .. })
+            Err(AuditError::BadLength {
+                field: "outputs",
+                ..
+            })
         ));
     }
 

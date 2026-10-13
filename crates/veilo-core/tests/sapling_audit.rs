@@ -20,9 +20,9 @@ use sapling_crypto::keys::{Diversifier, SaplingIvk};
 use sapling_crypto::note::{Note, Rseed};
 use sapling_crypto::note_encryption::{sapling_note_encryption, SaplingDomain};
 use sapling_crypto::value::NoteValue;
-use zcash_note_encryption::Domain;
 use veilo_core::audit::{trial_decrypt, SaplingOutput, COMPACT_NOTE_SIZE, ENC_CIPHERTEXT_SIZE};
 use veilo_core::memo::{pack_memo, MemoFields, MEMO_SIZE};
+use zcash_note_encryption::Domain;
 
 use rand::rngs::StdRng;
 use rand::SeedableRng;
@@ -80,13 +80,17 @@ fn seal_output(
 
     // AfterZip212 keeps this deterministic: the note randomness is fixed rather
     // than drawn from the rng, so a failure is reproducible.
-let note = Note::from_parts(address, NoteValue::from_raw(value_zat), Rseed::AfterZip212([9u8; 32]));
+    let note = Note::from_parts(
+        address,
+        NoteValue::from_raw(value_zat),
+        Rseed::AfterZip212([9u8; 32]),
+    );
 
-// The note commitment belongs in the output description, so read it before
+    // The note commitment belongs in the output description, so read it before
     // `sapling_note_encryption` consumes the note.
     let cmu = note.cmu().to_bytes();
 
-// ovk = None means the sender did not want the note recoverable; trial
+    // ovk = None means the sender did not want the note recoverable; trial
     // decryption by the recipient does not depend on it. Passing None keeps the
     // test from having to conjure an OutgoingViewingKey it never uses.
     let encrypted = sapling_note_encryption(None, note, memo, rng);
@@ -117,12 +121,19 @@ fn trial_decryption_recovers_value_and_veilo_memo() {
 
     let bid = trial_decrypt(&ESCROW_IVK, &output).expect("our output must decrypt for us");
 
-    assert_eq!(bid.value_zat, value, "note value must survive the round trip");
-    assert_eq!(bid.memo, memo, "the whole 512-byte envelope must survive intact");
+    assert_eq!(
+        bid.value_zat, value,
+        "note value must survive the round trip"
+    );
+    assert_eq!(
+        bid.memo, memo,
+        "the whole 512-byte envelope must survive intact"
+    );
 
     // And it is still a valid Veilo envelope, not just matching bytes: parse it
     // back through the real parser so a layout regression cannot hide here.
-    let parsed = veilo_core::memo::unpack_memo(&bid.memo).expect("recovered memo is a valid envelope");
+    let parsed =
+        veilo_core::memo::unpack_memo(&bid.memo).expect("recovered memo is a valid envelope");
     assert_eq!(parsed.bid_commit, [0xD4; 32]);
     assert_eq!(parsed.auction_id, [0xA1; 16]);
 }
