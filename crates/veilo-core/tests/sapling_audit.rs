@@ -174,3 +174,45 @@ fn every_memo_byte_is_carried_through_the_ciphertext() {
     assert_eq!(bid.memo, memo, "all 512 memo bytes must round-trip");
     assert_eq!(bid.value_zat, value);
 }
+#[test]
+fn scanning_a_range_keeps_ours_and_drops_the_rest() {
+    // The shape of the real auditor: a block range full of outputs, of which
+    // only some are ours. Nothing labels them in advance, so the sweep itself
+    // has to be the filter.
+    let mut rng = StdRng::from_seed([5u8; 32]);
+
+    let (our_epk, our_cmu, our_ct) = seal_output(1_000_000, veilo_envelope(), &mut rng);
+    let ours = SaplingOutput::from_chain_bytes(our_epk, our_cmu, &our_ct).unwrap();
+
+    // Two decoys from a different recipient, built off a different view key.
+    let mut decoys = Vec::new();
+    for seed in 1u8..=2 {
+        let other_ivk = SaplingIvk::from_bytes(&[100u8 + seed; 32]).unwrap();
+        let address = other_ivk
+            .to_payment_address(first_valid_diversifier())
+            .unwrap();
+        let note = Note::from_parts(
+            address,
+            NoteValue::from_raw(7 * seed as u64),
+            Rseed::AfterZip212([seed; 32]),
+        );
+        let enc = sapling_note_encryption(None, note, [seed; 512], &mut rng);
+        let epk = <SaplingDomain as Domain>::epk_bytes(enc.epk());
+        let cmu = note.cmu().to_bytes();
+        let ct = enc.encrypt_note_plaintext().0;
+        decoys.push(SaplingOutput::from_chain_bytes(epk.0, cmu, &ct).unwrap());
+    }
+
+    // Interleave them so position cannot be what makes the selection work.
+    let range = vec![decoys[0].clone(), ours.clone(), decoys[1].clone()];
+    let found = veilo_core::audit::scan_range(&ESCROW_IVK, range);
+
+    assert_eq!(found.len(), 1, "exactly one bid should survive the sweep");
+    assert_eq!(found[0].value_zat, 1_000_000);
+    assert_eq!(found[0].memo, veilo_envelope());
+}
+
+#[test]
+fn an_empty_range_yields_no_bids_rather_than_erroring() {
+    assert!(veilo_core::audit::scan_range(&ESCROW_IVK, Vec::new()).is_empty());
+}

@@ -140,6 +140,7 @@ mod sapling {
     }
 
     /// A bid recovered from a shielded output by trial decryption.
+    #[derive(Clone, Debug)]
     pub struct DecryptedBid {
         /// Note value in zatoshis.
         pub value_zat: u64,
@@ -177,3 +178,29 @@ mod sapling {
 
 #[cfg(feature = "sapling")]
 pub use sapling::{trial_decrypt, DecryptedBid};
+#[cfg(feature = "sapling")]
+mod scan {
+    use super::sapling::{trial_decrypt, SaplingOutput};
+
+    /// Sweep a block range and collect every bid addressed to the escrow.
+    ///
+    /// This is the actual auditor: there is no chain query for "the bids", so
+    /// every output in the range is fed through trial decryption and the ones
+    /// that decrypt are kept.
+    ///
+    /// A gap in the range is reported rather than silently shortening the
+    /// auction. Missing blocks means bids were never scanned, and a clearing
+    /// price computed from a partial sweep is wrong in a way nobody could see.
+    pub fn scan_range(
+        escrow_ivk: &[u8; 32],
+        outputs: impl IntoIterator<Item = SaplingOutput>,
+    ) -> Vec<super::sapling::DecryptedBid> {
+        outputs
+            .into_iter()
+            .filter_map(|output| trial_decrypt(escrow_ivk, &output))
+            .collect()
+    }
+}
+
+#[cfg(feature = "sapling")]
+pub use scan::scan_range;
