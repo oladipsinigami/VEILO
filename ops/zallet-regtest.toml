@@ -34,13 +34,18 @@ allow_insecure_remote_bind = false
 # These are throwaway values for an ephemeral regtest node that holds nothing of
 # value. NEVER reuse them on mainnet.
 #
-# `auth` is a LIST of "user:password" strings. Two separate schema surprises
-# here, both learned the hard way:
-#   * `user` and `password` are NOT valid keys -- `zallet example-config` still
-#     prints them commented out, but the parser rejects them outright.
-#   * `auth` must be a sequence, not a bare string, or:
-#     invalid type: string "...", expected a sequence
-auth = ["veilo:veilo-regtest-only"]
+# Three schema surprises here, all learned by hitting them:
+#   1. `user`/`password` directly under [rpc] are NOT valid keys. The example
+#      config still prints them commented out, which is actively misleading.
+#   2. `auth` must be a sequence, not a bare string.
+#   3. Each element is a TABLE, not a string, so it needs its own [[rpc.auth]]
+#      header rather than an inline value.
+#
+# Repeat the [[rpc.auth]] section to add more users. `__cookie__` is reserved for
+# the startup cookie and must not be configured here.
+[[rpc.auth]]
+user = "veilo"
+password = "veilo-regtest-only"
 
 [indexer]
 # The full node Zallet reads chain data from. Port 28233 is zebrad's regtest RPC;
