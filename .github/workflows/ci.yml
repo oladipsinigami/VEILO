@@ -233,7 +233,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: bin/zebrad
-          key: zebrad-c1f84f3ee92a577ebaeaf5753a5f3cf261428e8e-${{ runner.os }}
+          key: zebrad-indexer-c1f84f3ee92a577ebaeaf5753a5f3cf261428e8e-${{ runner.os }}
 
       - name: build zebrad with internal-miner
         if: steps.zebrad-cache.outputs.cache-hit != 'true'
@@ -275,7 +275,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: bin/zebrad
-          key: zebrad-c1f84f3ee92a577ebaeaf5753a5f3cf261428e8e-${{ runner.os }}
+          key: zebrad-indexer-c1f84f3ee92a577ebaeaf5753a5f3cf261428e8e-${{ runner.os }}
 
       - name: verify zebrad can mine
         run: |
@@ -371,7 +371,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: bin/zebrad
-          key: zebrad-c1f84f3ee92a577ebaeaf5753a5f3cf261428e8e-${{ runner.os }}
+          key: zebrad-indexer-c1f84f3ee92a577ebaeaf5753a5f3cf261428e8e-${{ runner.os }}
 
       - name: build zebrad
         if: steps.zebrad-cache.outputs.cache-hit != 'true'
@@ -380,7 +380,17 @@ jobs:
           ZEBRA_REV=c1f84f3ee92a577ebaeaf5753a5f3cf261428e8e
           git clone --quiet https://github.com/ZcashFoundation/zebra zebra-src
           git -C zebra-src checkout --quiet "$ZEBRA_REV"
-          cargo build --release --locked --manifest-path zebra-src/Cargo.toml             -p zebrad --bin zebrad --no-default-features
+          # --features indexer is REQUIRED by Zallet's default `zebra-state`
+          # backend: it speaks the gRPC read-state service, which only exists in
+          # a zebrad built with that feature. Without it Zallet refuses to start
+          # with "the zebra-state backend requires an
+          # [indexer.read_state_service] config section".
+          #
+          # Also note that this port speaks gRPC, not JSON-RPC. An earlier
+          # version of this project probed it with curl and got
+          # "curl: (1) Received HTTP/0.9 when not allowed" -- that was gRPC
+          # being fed an HTTP request, not a broken node.
+          cargo build --release --locked --manifest-path zebra-src/Cargo.toml             -p zebrad --bin zebrad --no-default-features --features indexer
           mkdir -p bin
           cp zebra-src/target/release/zebrad bin/zebrad
           chmod +x bin/zebrad

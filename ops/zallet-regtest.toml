@@ -299,7 +299,7 @@ validator_address = "127.0.0.1:28233"
 #
 # This section is optional. Uncomment the header and fields below to enable it.
 #
-#[indexer.read_state_service]
+[indexer.read_state_service]
 
 # Address (`host:port`) of zebrad's gRPC indexer interface.
 #
@@ -307,7 +307,7 @@ validator_address = "127.0.0.1:28233"
 # `indexer_listen_addr` set in zebrad's `[rpc]` config section. Note that the
 # indexer interface is only available in a `zebrad` built with the `indexer`
 # feature flag; it is not present in a default build.
-#grpc_address = "127.0.0.1:8230"
+grpc_address = "127.0.0.1:28234"
 
 # Path to the running zebrad's existing state cache directory.
 #
@@ -316,7 +316,11 @@ validator_address = "127.0.0.1:28233"
 # state format must be compatible with Zallet's `zebra-state` version.
 #
 # This can be either an absolute path, or a path relative to the data directory.
-#zebra_state_path = "/home/<username>/.cache/zebra"
+#
+# This is why the zallet CI job's zebrad config sets a real, non-ephemeral
+# cache_dir: Zallet opens the RocksDB directory READ-ONLY as a secondary
+# instance, so the state has to actually exist on disk.
+zebra_state_path = "/tmp/zebra-cache"
 
 
 #

@@ -65,10 +65,20 @@ NU5 = 3
 "NU6.3" = 7
 NU7 = 8
 
-# Non-persistent chain state: every restart is a clean chain, which is what a
-# deterministic demo wants.
+# NOT ephemeral here, unlike ops/zebrad-regtest.toml.
+#
+# Zallet's zebra-state backend opens this RocksDB directory READ-ONLY as a
+# secondary instance so it can follow the chain tip. With `ephemeral = true`
+# zebrad keeps its state in a temp directory that is removed on shutdown, so
+# there is nothing for Zallet to attach to and startup fails with
+# "failed to initialize zallet".
+#
+# Ephemeral was the right call for the standalone config, where determinism
+# mattered and nothing else needed the on-disk state. Here, a real cache_dir is
+# a hard requirement of the wallet.
 [state]
-ephemeral = true
+ephemeral = false
+cache_dir = "/tmp/zebra-cache"
 
 # Needed so send_raw_transaction can mine non-coinbase transactions onto the chain.
 [rpc]
