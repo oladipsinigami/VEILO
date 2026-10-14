@@ -193,11 +193,21 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # 5. The one that needs a real Zcash node: regtest, end to end
+  #
+  # MANUAL DISPATCH ONLY, deliberately. This job cannot pass on this project:
+  # zebrad has no wallet, and its internal miner cannot build a regtest block 1
+  # (upstream #8434 -- it needs Heartwood AND Canopy at height 1, and equal
+  # activation heights collide in zebra's BTreeMap). See ops/README.md.
+  #
+  # It used to run on every push via `!inputs.skip_zebra`, which is TRUE when the
+  # input is unset on a push event. Every push therefore went red, which made a
+  # green run meaningless. Known-broken exploration should not sit on the merge
+  # gate; the Zallet-based regtest job below replaces it.
   # ---------------------------------------------------------------------------
   regtest:
-    name: regtest
+    name: regtest (known broken)
     needs: [config]
-    if: ${{ !inputs.skip_zebra && (github.event_name != 'pull_request') }}
+    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.skip_zebra }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     # NOTE: deliberately no job-level `env:` block here. zebrad treats any
@@ -329,3 +339,66 @@ jobs:
       - name: zebrad process
         if: always()
         run: pkill -f zebrad || true
+
+  # ---------------------------------------------------------------------------
+  # 6. The real wallet stack: zebrad + Zallet on regtest
+  #
+  # This replaces the `regtest` job above, which tried to make zebrad do wallet
+  # work it cannot do (it has no wallet at all: z_getnewaddress, z_getbalance
+  # and z_sendmany all return -32601) and whose internal miner cannot build
+  # block 1 anyway (upstream #8434).
+  #
+  # Milestone 1 (this job): prove zebrad and Zallet can run together and that
+  # Zallet can produce an address. Milestone 2 is funding it and sending a
+  # transaction carrying a real 512-byte Veilo memo, then feeding the resulting
+  # encCiphertext to veilo-core's auditor.
+  #
+  # Runs on every push: unlike the old job this one is expected to be green, and
+  # it is the thing that proves the demo's core is real.
+  # ---------------------------------------------------------------------------
+  zallet:
+    name: zallet + zebrad (regtest)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # ---- zebrad ------------------------------------------------------------
+      - name: restore cached zebrad
+        id: zebrad-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: bin/zebrad
+          key: zebrad-c1f84f3ee92a577ebaeaf5753a5f3cf261428e8e-${{ runner.os }}
+
+      - name: build zebrad
+        if: steps.zebrad-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          ZEBRA_REV=c1f84f3ee92a577ebaeaf5753a5f3cf261428e8e
+          git clone --quiet https://github.com/ZcashFoundation/zebra zebra-src
+          git -C zebra-src checkout --quiet "$ZEBRA_REV"
+          cargo build --release --locked --manifest-path zebra-src/Cargo.toml             -p zebrad --bin zebrad --no-default-features
+          mkdir -p bin
+          cp zebra-src/target/release/zebrad bin/zebrad
+          chmod +x bin/zebrad
+          ./bin/zebrad --version
+
+      # ---- zallet ------------------------------------------------------------
+      - name: install zallet
+        run: bash ops/install-zallet.sh
+
+      # ---- run the stack -----------------------------------------------------
+      - name: start zebrad and zallet, produce an address
+        run: bash ops/zallet-smoke.sh
+
+      - name: show what we learned
+        if: always()
+        run: |
+          echo "=== zebrad log tail ==="
+          tail -30 ops/zebrad-zallet.log 2>/dev/null || echo "(no zebrad log)"
+          echo
+          echo "=== zallet log tail ==="
+          tail -30 ops/zallet.log 2>/dev/null || echo "(no zallet log)"
