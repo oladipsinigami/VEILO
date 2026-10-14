@@ -132,3 +132,38 @@ reproduced and fixed in turn before the next surfaced.
 `z_sendmany`, so it could never fund a wallet, create a shielded address, or
 put a memo in a shielded output. A real end-to-end demo needs a wallet-capable
 node; `zcashd` is the next step. See VEILO_BLUEPRINT.md.
+
+## Known blocker: Zallet cannot read a current zebrad's state (Oct 14)
+
+The Zallet regtest stack is wired up end to end -- config, ports, gRPC
+read-state service, non-ephemeral state dir -- and stops at one wall:
+
+```
+no zebra-state v28 database found under '/tmp/zebra-cache'
+```
+
+Zallet `v0.1.0-beta.3` pins `zebra-state 12.0.1`. The zebrad we build writes
+state format **v15**:
+
+| zebrad | zebra-state |
+| :--- | :--- |
+| `c1f84f3` / `v7.0.0-rc.0` (Oct 2) | 15.0.0 |
+| `v6.4.2` (Sep 25) | 14.0.0 |
+| `v6.3.0` (Aug 10) | 13.0.0 |
+| Zallet beta.3 expects | **12.0.1** |
+
+Zallet opens zebrad's RocksDB directory read-only as a secondary instance, so
+the on-disk format has to match exactly. Even the zebrad release nearest to
+Zallet's own release date is a major version ahead of what Zallet expects.
+
+The format bumps roughly monthly, so this resolves itself when Zallet ships a
+release built against a newer `zebra-state`. The CI job is kept and still runs
+(`continue-on-error`), so it turns green the moment that happens.
+
+Alternatives if it does not:
+
+* Pin zebrad to a pre-v6.3.0 commit whose state format is v12 -- trades NU7 and
+  current regtest support for compatibility.
+* Use Zallet's `zaino` backend instead of `zebra-state`. Zaino speaks JSON-RPC
+  and does not share a RocksDB directory, so the format coupling disappears,
+  at the cost of running a second node.
