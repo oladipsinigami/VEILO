@@ -630,6 +630,17 @@ a judge (or future session) can reproduce the checks rather than take them on tr
 | Smart App Control was blocking unsigned Rust build scripts until disabled. | Resolved, but it will block `wasm-pack` output and any `zebrad` binary too. Documented in `crates/README.md`. |
 | No TS path to real settlement: broadcasting a batched shielded transaction requires `zcash_client_backend`. | Confirms Rust is required for the settlement engine, not merely preferred. |
 
+### Environment findings (Oct 13-14, session 2)
+
+| Finding | Consequence |
+| :--- | :--- |
+| **`Zallet` (`zcash/zallet`, `v0.1.0-beta.3`, Aug 26 2026) is the only supported wallet**, since `zcashd` is EOL. It ships a **prebuilt `linux-amd64` tarball**, so nothing needs compiling. | Removes the multi-day `zcashd` build that Spike B assumed. `ops/install-zallet.sh` installs it. |
+| **Zallet is not a standalone wallet.** Its `[indexer] validator_address` must point at a full node; with the default `zebra` backend it speaks the read-state service to a co-located `zebrad`. | The wallet stack is `zebrad` + `zallet`, not `zallet` alone. This is why regtest stays the engineering path: both halves are already obtainable. |
+| **Public Testnet is now Valar's NU7 fork** (`nu7.valargroup.dev`, block-time reduction, forked `zebra`), not ZF's. | Credibility caveat for any testnet claim; must be stated as a limitation, not hidden. |
+| **Most testnet faucets are broken post-NU7.** Confirmed on the forum Oct 9: *"jinolabs is paused for NU7, and Fauzec's drips land on the old pre-NU7 chain, so they never arrive."* `fauzec.com` still returns HTTP 200 and reports a confirmed claim that never arrives. | Do not use Fauzec. **Valar's faucet works**: `https://faucet.testnet.valargroup.dev/api/claim`, 0.125 TAZ/24h, accepts transparent or unified addresses. |
+| **No Docker in the Codespace**, so `zushi` (Docker-based Zcash regtest harness) cannot run there. | Regtest must use the cached `zebrad` binary, which CI already builds and caches. |
+| The Codespace SSH tunnel from the Windows box drops on long-running commands. | Long jobs belong in GitHub Actions, not interactive SSH. This bit us repeatedly on the 144 MB Zallet download. |
+
 ### Known-future breakage
 
 The 512-byte memo layout is tied to `v5`/`v6`. When `ZIP-231` (Memo Bundles, Draft, V7-onward)
