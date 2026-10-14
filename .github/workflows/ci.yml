@@ -394,11 +394,23 @@ jobs:
       - name: start zebrad and zallet, produce an address
         run: bash ops/zallet-smoke.sh
 
+      # Ship the logs. Reading them out of the step output means fighting
+      # truncated tails and ANSI escapes; an artifact is the real file.
+      - name: upload node logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zallet-regtest-logs
+          path: |
+            ops/zallet.log
+            ops/zebrad-zallet.log
+          if-no-files-found: warn
+
       - name: show what we learned
         if: always()
         run: |
           echo "=== zebrad log tail ==="
-          tail -30 ops/zebrad-zallet.log 2>/dev/null || echo "(no zebrad log)"
+          tail -25 ops/zebrad-zallet.log 2>/dev/null || echo "(no zebrad log)"
           echo
           echo "=== zallet log tail ==="
-          tail -30 ops/zallet.log 2>/dev/null || echo "(no zallet log)"
+          tail -25 ops/zallet.log 2>/dev/null || echo "(no zallet log)"

@@ -93,11 +93,18 @@ for i in $(seq 1 90); do
   R=$(rpc 28232 '{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}' \
         -u veilo:veilo-regtest-only)
   if printf '%s' "$R" | grep -qE '"result"|"error"'; then
-    log "zallet RPC answered after ${i}s"
+    log "zallet RPC answered after ${i}s: $R"
+    ZALLET_READY=1
     break
   fi
   sleep 1
 done
+
+if [ "${ZALLET_READY:-0}" != "1" ]; then
+  echo "Zallet never answered on 28232. Its log:" >&2
+  tail -40 ops/zallet.log >&2 || echo "(no ops/zallet.log)" >&2
+  exit 1
+fi
 
 log "zallet wallet getwalletinfo:"
 rpc 28232 '{"jsonrpc":"1.0","id":"veilo","method":"getwalletinfo","params":[]}' \
@@ -108,5 +115,5 @@ rpc 28232 '{"jsonrpc":"1.0","id":"veilo","method":"getnetwork","params":[]}' \
   -u veilo:veilo-regtest-only
 echo
 
-log "MILESTONE 1: both processes up and Zallet is serving RPC."
+log "MILESTONE 1 OK: zebrad and Zallet both up, Zallet serving RPC."
 echo "Address generation is the next step -- see ops/README.md."
