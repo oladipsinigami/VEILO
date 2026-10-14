@@ -26,9 +26,11 @@ ZEBRAD_BIN="bin/zebrad"
 ZALLET_BIN="${ZALLET_DIR:-$HOME/zallet}/zallet"
 DATA_DIR="$PWD/.zallet-regtest"
 
-rpc() { # rpc <port> <json>
-  curl -s --max-time 15 "http://127.0.0.1:$1" \
-    -H 'content-type: application/json' --data "$2" 2>/dev/null || true
+rpc() { # rpc <port> <json> [extra curl args...]
+  local port="$1" body="$2"
+  shift 2
+  curl -s --max-time 15 "http://127.0.0.1:$port" \
+    -H 'content-type: application/json' --data "$body" "$@" 2>/dev/null || true
 }
 
 log() { echo "[zallet-smoke] $*"; }
@@ -61,15 +63,15 @@ log "starting zebrad (regtest, rpc 28233, indexer 28234)"
 echo $! > "$DATA_DIR/zebrad.pid"
 
 for i in $(seq 1 60); do
-  H=$(rpc 28234 '{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}')
+  H=$(rpc 28233 '{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}')
   if printf '%s' "$H" | grep -q '"result"'; then
-    log "zebrad up after ${i}s"
+    log "zebrad up after ${i}s (height ${H})"
     break
   fi
   sleep 1
 done
 
-if ! rpc 28234 '{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}' | grep -q '"result"'; then
+if ! rpc 28233 '{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}' | grep -q '"result"'; then
   echo "zebrad did not become ready. Log:" >&2
   tail -40 ops/zebrad-zallet.log >&2
   exit 1
