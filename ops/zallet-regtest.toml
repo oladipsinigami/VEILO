@@ -33,8 +33,13 @@ allow_insecure_remote_bind = false
 # Static credentials so CI can call the wallet without an interactive prompt.
 # These are throwaway values for an ephemeral regtest node that holds nothing of
 # value. NEVER reuse them on mainnet.
-user = "veilo"
-password = "veilo-regtest-only"
+#
+# `auth` is a single "user:password" string. Note that `user` and `password` are
+# NOT valid keys here -- `zallet example-config` still prints them commented out,
+# but the schema rejects them:
+#   unknown field `user`, expected one of `async_operation_limit`, `bind`,
+#   `allow_insecure_remote_bind`, `timeout`, `auth`
+auth = "veilo:veilo-regtest-only"
 
 [indexer]
 # The full node Zallet reads chain data from. Port 28233 is zebrad's regtest RPC;
