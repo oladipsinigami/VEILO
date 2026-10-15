@@ -245,6 +245,30 @@ mod core {
 
 // ------------------------------------------------------------------ wasm ABI
 
+/// Check a permissionless reveal against the commitment already on chain.
+///
+/// Returns true only if the amount hashes to the `bid_commit` that was in the
+/// memo from the start. This is the step that makes the auction honest: a bidder
+/// who changes their number at the deadline produces a different hash and is
+/// rejected.
+///
+/// `bid_zat` is a decimal string on purpose. A `u64` crosses the wasm boundary
+/// as a BigInt, and an `f64` would silently lose precision above 2^53 -- about
+/// 90 million ZEC in zatoshis, so "just use a float" is a real hazard here.
+#[cfg(feature = "sapling")]
+#[wasm_bindgen]
+pub fn verify_reveal(
+    auction_id: &[u8],
+    bid_zat: &str,
+    nonce: &[u8],
+    epk_bid: &[u8],
+    bid_commit: &[u8],
+) -> Result<bool, JsError> {
+    core::verify_reveal(auction_id, bid_zat, nonce, epk_bid, bid_commit)
+        .map_err(|e| JsError::new(&e.to_string()))
+}
+
+
 /// Trial-decrypt one Sapling output with the escrow viewing key.
 ///
 /// Returns a JSON object string, or the string `null` when the output is not
