@@ -99,10 +99,19 @@ fn seal(ivk: &[u8; 32], value_zat: u64, memo: [u8; 512], dseed: u8, rng: &mut St
 
 /// A note belonging to somebody else entirely. The auditor must ignore these.
 fn decoy(index: u8, rng: &mut StdRng) -> Vec<u8> {
+    // The top bytes must stay small: `SaplingIvk::from_bytes` parses a
+    // little-endian scalar and rejects anything outside {1 .. 2^251-1}, so a
+    // high byte of 0xC0 overflows the field modulus and from_repr returns None.
+    // Keep the pattern in the low bytes and pin the top ones.
     let mut bytes = [0u8; 32];
-    bytes[..31].fill(0xC0);
-    bytes[31] = index;
-    let ivk = SaplingIvk::from_bytes(&bytes).expect("valid ivk");
+    bytes[..28].fill(0xC0);
+    bytes[28] = index;
+    bytes[29] = 0;
+    bytes[30] = 0;
+    bytes[31] = 1;
+    let ivk = SaplingIvk::from_bytes(&bytes)
+        .into_option()
+        .expect("decoy ivk must be a valid scalar");
     seal(&ivk.to_repr(), 1234 + index as u64, [index; 512], 0x40 + index, rng)
 }
 
