@@ -78,6 +78,8 @@ mod core {
         UnparseableOutput,
         /// The memo decrypted but is not a valid Veilo envelope.
         InvalidEnvelope(String),
+        /// The reveal's bid amount was not a decimal integer.
+        BadRevealAmount(String),
     }
 
     impl std::fmt::Display for AuditError {
@@ -96,6 +98,9 @@ mod core {
                 AuditError::UnparseableOutput => write!(f, "failed to parse the Sapling output"),
                 AuditError::InvalidEnvelope(why) => {
                     write!(f, "decrypted, but the envelope is invalid: {why}")
+                }
+                AuditError::BadRevealAmount(s) => {
+                    write!(f, "reveal bid amount {s:?} is not a decimal integer")
                 }
             }
         }
@@ -171,6 +176,46 @@ mod core {
             .map_err(|e| AuditError::InvalidEnvelope(e.to_string()))?;
 
         Ok(Some(bid_json(&fields, bid.value_zat)))
+    }
+
+
+    /// Check a permissionless reveal against the commitment already on chain.
+    ///
+    /// This is the step that makes the auction honest: the bid amount is
+    /// published only after the deadline, and it is accepted only if it hashes
+    /// to the `bid_commit` that was in the memo from the start. A bidder who
+    /// changes their number once they can see everyone else's produces a
+    /// different hash and is dropped.
+    ///
+    /// `bid_zat` is a decimal STRING rather than a number on purpose. A u64
+    /// crosses the wasm boundary as a BigInt and an f64 would silently lose
+    /// precision above 2^53, which is roughly 90 million ZEC in zatoshis --
+    /// low enough that "just use a float" is a real hazard, not a theoretical
+    /// one.
+    pub fn verify_reveal(
+        auction_id: &[u8],
+        bid_zat: &str,
+        nonce: &[u8],
+        epk_bid: &[u8],
+        bid_commit: &[u8],
+    ) -> Result<bool, AuditError> {
+        let zat: u64 = bid_zat
+            .parse()
+            .map_err(|_| AuditError::BadRevealAmount(bid_zat.to_string()))?;
+        let commit: [u8; 32] = as_commit32(bid_commit)?;
+        let Some(commit) = commit else {
+            return Ok(false);
+        };
+        let computed = veilo_core::memo::compute_bid_commit(auction_id, zat, nonce, epk_bid)
+            .map_err(|e| AuditError::InvalidEnvelope(e.to_string()))?;
+        Ok(computed == commit)
+    }
+
+    fn as_commit32(bytes: &[u8]) -> Result<Option<[u8; 32]>, AuditError> {
+        match bytes.try_into() {
+            Ok(a) => Ok(Some(a)),
+            Err(_) => Ok(None),
+        }
     }
 
     /// Audit a flat buffer of `(epk || cmu || enc_ciphertext)` records.
@@ -368,6 +413,60 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn verify_reveal_accepts_a_matching_reveal() {
+        let nonce = [0x11; 16];
+        let epk = [0x22; 32];
+        let auction_id = [0x33; 16];
+        let zat = 7_000_000_000u64;
+
+        let expected = veilo_core::memo::compute_bid_commit(&auction_id, zat, &nonce, &epk)
+            .expect("well-formed");
+
+
+        assert!(super::core::verify_reveal(
+            &auction_id,
+            "7000000000",
+            &nonce,
+            &epk,
+            &expected,
+        )
+        .expect("well-formed inputs"));
+    }
+
+    #[test]
+    fn verify_reveal_rejects_a_changed_amount() {
+        let auction_id = [0x33; 16];
+        let nonce = [0x11; 16];
+        let epk = [0x22; 32];
+        let commit =
+            veilo_core::memo::compute_bid_commit(&auction_id, 7_000_000_000, &nonce, &epk).unwrap();
+
+        // Same commitment, different claimed amount: exactly the attack the
+        // reveal check exists to stop.
+        assert!(!super::core::verify_reveal(
+            &auction_id,
+            "100000000",
+            &nonce,
+            &epk,
+            &commit,
+        )
+        .expect("well-formed inputs"));
+    }
+
+    #[test]
+    fn verify_reveal_rejects_a_non_numeric_amount() {
+        let e = super::core::verify_reveal(
+            &[0u8; 16],
+            "seventy",
+            &[0u8; 16],
+            &[0u8; 32],
+            &[0u8; 32],
+        )
+        .unwrap_err();
+        assert!(matches!(e, super::core::AuditError::BadRevealAmount(_)));
     }
 
     #[test]
