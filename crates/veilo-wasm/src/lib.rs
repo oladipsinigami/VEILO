@@ -178,7 +178,6 @@ mod core {
         Ok(Some(bid_json(&fields, bid.value_zat)))
     }
 
-
     /// Check a permissionless reveal against the commitment already on chain.
     ///
     /// This is the step that makes the auction honest: the bid amount is
@@ -267,7 +266,6 @@ pub fn verify_reveal(
     core::verify_reveal(auction_id, bid_zat, nonce, epk_bid, bid_commit)
         .map_err(|e| JsError::new(&e.to_string()))
 }
-
 
 /// Trial-decrypt one Sapling output with the escrow viewing key.
 ///
@@ -452,15 +450,10 @@ mod tests {
         let expected = veilo_core::memo::compute_bid_commit(&auction_id, zat, &nonce, &epk)
             .expect("well-formed");
 
-
-        assert!(super::core::verify_reveal(
-            &auction_id,
-            "7000000000",
-            &nonce,
-            &epk,
-            &expected,
-        )
-        .expect("well-formed inputs"));
+        assert!(
+            super::core::verify_reveal(&auction_id, "7000000000", &nonce, &epk, &expected,)
+                .expect("well-formed inputs")
+        );
     }
 
     #[test]
@@ -473,26 +466,17 @@ mod tests {
 
         // Same commitment, different claimed amount: exactly the attack the
         // reveal check exists to stop.
-        assert!(!super::core::verify_reveal(
-            &auction_id,
-            "100000000",
-            &nonce,
-            &epk,
-            &commit,
-        )
-        .expect("well-formed inputs"));
+        assert!(
+            !super::core::verify_reveal(&auction_id, "100000000", &nonce, &epk, &commit,)
+                .expect("well-formed inputs")
+        );
     }
 
     #[test]
     fn verify_reveal_rejects_a_non_numeric_amount() {
-        let e = super::core::verify_reveal(
-            &[0u8; 16],
-            "seventy",
-            &[0u8; 16],
-            &[0u8; 32],
-            &[0u8; 32],
-        )
-        .unwrap_err();
+        let e =
+            super::core::verify_reveal(&[0u8; 16], "seventy", &[0u8; 16], &[0u8; 32], &[0u8; 32])
+                .unwrap_err();
         assert!(matches!(e, super::core::AuditError::BadRevealAmount(_)));
     }
 

@@ -112,20 +112,61 @@ fn decoy(index: u8, rng: &mut StdRng) -> Vec<u8> {
     let ivk = SaplingIvk::from_bytes(&bytes)
         .into_option()
         .expect("decoy ivk must be a valid scalar");
-    seal(&ivk.to_repr(), 1234 + index as u64, [index; 512], 0x40 + index, rng)
+    seal(
+        &ivk.to_repr(),
+        1234 + index as u64,
+        [index; 512],
+        0x40 + index,
+        rng,
+    )
 }
 
 fn main() {
     let mut rng = StdRng::from_seed([7u8; 32]);
 
     let participants = [
-        Participant { label: "Bob",   bid_zat: 70 * ZEC, collateral_zat: 70 * ZEC, nonce: [0xB0; 16], is_seller: false, decoys_after: 1 },
-        Participant { label: "Carol", bid_zat: 60 * ZEC, collateral_zat: 60 * ZEC, nonce: [0xC0; 16], is_seller: false, decoys_after: 1 },
-        Participant { label: "Alice", bid_zat: 65 * ZEC, collateral_zat: 65 * ZEC, nonce: [0xA1; 16], is_seller: true,  decoys_after: 1 },
-        Participant { label: "Dave",  bid_zat: 45 * ZEC, collateral_zat: 45 * ZEC, nonce: [0xD0; 16], is_seller: false, decoys_after: 0 },
+        Participant {
+            label: "Bob",
+            bid_zat: 70 * ZEC,
+            collateral_zat: 70 * ZEC,
+            nonce: [0xB0; 16],
+            is_seller: false,
+            decoys_after: 1,
+        },
+        Participant {
+            label: "Carol",
+            bid_zat: 60 * ZEC,
+            collateral_zat: 60 * ZEC,
+            nonce: [0xC0; 16],
+            is_seller: false,
+            decoys_after: 1,
+        },
+        Participant {
+            label: "Alice",
+            bid_zat: 65 * ZEC,
+            collateral_zat: 65 * ZEC,
+            nonce: [0xA1; 16],
+            is_seller: true,
+            decoys_after: 1,
+        },
+        Participant {
+            label: "Dave",
+            bid_zat: 45 * ZEC,
+            collateral_zat: 45 * ZEC,
+            nonce: [0xD0; 16],
+            is_seller: false,
+            decoys_after: 0,
+        },
         // Erin claims 55 ZEC but only locks 20. Must be rejected: a bidder who
         // cannot cover their bid is not a bidder.
-        Participant { label: "Erin",  bid_zat: 55 * ZEC, collateral_zat: 20 * ZEC, nonce: [0xE0; 16], is_seller: false, decoys_after: 2 },
+        Participant {
+            label: "Erin",
+            bid_zat: 55 * ZEC,
+            collateral_zat: 20 * ZEC,
+            nonce: [0xE0; 16],
+            is_seller: false,
+            decoys_after: 2,
+        },
     ];
 
     let mut records: Vec<String> = Vec::new();
@@ -162,13 +203,19 @@ fn main() {
         if p.is_seller {
             seller_epk_bid = Some(hex(&epk_bid));
         }
-        reveals.push(hex(&encode_reveal(&AUCTION_ID, p.bid_zat, &p.nonce).expect("valid reveal")));
+        reveals.push(hex(
+            &encode_reveal(&AUCTION_ID, p.bid_zat, &p.nonce).expect("valid reveal")
+        ));
         notes.push(format!(
             "{} bids {} ZEC with {} ZEC collateral{}",
             p.label,
             p.bid_zat / ZEC,
             p.collateral_zat / ZEC,
-            if p.is_seller { " (seller: excluded)" } else { "" }
+            if p.is_seller {
+                " (seller: excluded)"
+            } else {
+                ""
+            }
         ));
 
         for d in 0..p.decoys_after {

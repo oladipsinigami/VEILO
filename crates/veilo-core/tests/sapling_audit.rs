@@ -251,9 +251,6 @@ fn an_empty_range_yields_no_bids_rather_than_erroring() {
 // GitHub token available here lacks the `workflow` scope needed to change the
 // workflow file. Split them back out once the token can write .github/.
 
-
-
-
 /// One bidder, after the reveal has been checked against the chain.
 struct Resolved {
     epk_bid: String,
@@ -409,14 +406,17 @@ fn the_fixture_audits_to_the_stated_outcome() {
                 break;
             }
         }
-        let bid_zat = matched.expect(
-            "every decrypted bid must have a reveal matching its on-chain commitment",
-        );
+        let bid_zat = matched
+            .expect("every decrypted bid must have a reveal matching its on-chain commitment");
         resolved.push(Resolved {
             epk_bid: epk_bid.iter().map(|b| format!("{b:02x}")).collect(),
             bid_zat,
             collateral_zat: *collateral_zat,
-            is_seller: epk_bid.iter().map(|b| format!("{b:02x}")).collect::<String>() == seller_epk_bid,
+            is_seller: epk_bid
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+                == seller_epk_bid,
         });
     }
 
@@ -493,7 +493,11 @@ fn the_sellers_own_bid_is_never_eligible() {
         let output = SaplingOutput::from_chain_bytes(epk, cmu, &bytes[64..]).unwrap();
         if let Some(bid) = trial_decrypt(&escrow_ivk, &output) {
             let fields = unpack_memo(&bid.memo).unwrap();
-            let hex = fields.epk_bid.iter().map(|b| format!("{b:02x}")).collect::<String>();
+            let hex = fields
+                .epk_bid
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>();
             if hex == seller {
                 saw_seller = true;
             }
