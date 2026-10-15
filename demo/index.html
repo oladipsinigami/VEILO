@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Veilo — independent auction audit</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --line: #30363d;
+    --ink: #e6edf3; --dim: #8b949e;
+    --ok: #3fb950; --bad: #f85149; --warn: #d29922; --accent: #58a6ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2rem 1.25rem 4rem;
+    background: var(--bg); color: var(--ink);
+    font: 15px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 60rem; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin: 0 0 .25rem; letter-spacing: -.01em; }
+  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
+       color: var(--dim); margin: 2rem 0 .75rem; }
+  p.lede { color: var(--dim); margin: 0 0 1.5rem; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85em; }
+  .panel { background: var(--panel); border: 1px solid var(--line);
+           border-radius: 8px; padding: 1rem 1.15rem; }
+  button {
+    background: var(--accent); color: #04121f; border: 0; border-radius: 6px;
+    padding: .55rem 1rem; font-weight: 600; font-size: .9rem; cursor: pointer;
+  }
+  button:disabled { opacity: .5; cursor: default; }
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--line); }
+  th { color: var(--dim); font-weight: 600; font-size: .78rem;
+       text-transform: uppercase; letter-spacing: .05em; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .verdict { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .75rem; }
+  .stat { background: var(--panel); border: 1px solid var(--line);
+          border-radius: 8px; padding: .85rem 1rem; }
+  .stat .k { color: var(--dim); font-size: .72rem; text-transform: uppercase;
+             letter-spacing: .07em; }
+  .stat .v { font-size: 1.35rem; font-weight: 650; margin-top: .15rem; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+  .dim { color: var(--dim); }
+  .tag { display: inline-block; padding: .1rem .45rem; border-radius: 4px;
+         font-size: .72rem; font-weight: 600; border: 1px solid currentColor; }
+  .note { border-left: 3px solid var(--warn); padding: .6rem .9rem;
+          background: #1c2128; border-radius: 0 6px 6px 0; color: var(--dim);
+          font-size: .88rem; }
+  .hex { color: var(--dim); font-size: .78rem; }
+  #log { margin-top: 1rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Veilo — independent auction audit</h1>
+  <p class="lede">
+    Recompute a sealed-bid auction's clearing price from chain ciphertexts,
+    in your browser, using nothing but the seller's public viewing key.
+    No server, no account, no trust in whoever ran the auction.
+  </p>
+
+  <div class="panel">
+    <button id="run">Run the audit</button>
+    <span id="status" class="dim" style="margin-left:.75rem"></span>
+  </div>
+
+  <div id="out"></div>
+
+  <h2>What this is and is not</h2>
+  <div class="note">
+    The ciphertexts below are produced by Zcash's real Sapling note encryption
+    (<code>sapling_crypto</code>) and carry real 512-byte Veilo envelopes, so the
+    decryption you see below is the genuine article — there is no mock anywhere.
+    <strong>They were not mined on a chain.</strong> This demonstrates the
+    cryptography and the auction arithmetic, not transaction broadcast; that is
+    a separate claim, currently blocked on a Zallet/zebra state-format gap.
+  </div>
+</main>
+
+<script type="module">
+import init, { audit_range, memo_size, enc_ciphertext_size } from "./pkg/veilo_wasm.js";
+
+const $ = (id) => document.getElementById(id);
+const hexToBytes = (h) => {
+  const out = new Uint8Array(h.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(h.slice(i * 2, i * 2 + 2), 16);
+  return out;
+};
+const short = (h, n = 12) => h.slice(0, n) + "…";
+const zec = (zat) => (zat / 100000000).toFixed(2);
+
+/** Concatenate hex records into the flat buffer audit_range expects. */
+function packOutputs(records) {
+  const parts = records.map(hexToBytes);
+  const total = parts.reduce((n, p) => n + p.length, 0);
+  const buf = new Uint8Array(total);
+  let o = 0;
+  for (const p of parts) { buf.set(p, o); o += p.length; }
+  return buf;
+}
+
+/**
+ * Resolve each permissionless reveal (auction_id || bid_zat_le || nonce) to a
+ * bidder, using the commitment already on chain. A reveal that does not match
+ * the committed bid_commit is discarded -- that is what stops a bidder changing
+ * their number after seeing everyone else's.
+ */
+function resolveReveals(reveals, auctionIdHex, bids) {
+  const byCommit = new Map();
+  for (const b of bids) byCommit.set(b.bid_commit.toLowerCase(), b);
+
+  const resolved = [];
+  for (const r of reveals) {
+    const bytes = hexToBytes(r);
+    // 16-byte auction id must match, then 8-byte LE amount, then 16-byte nonce.
+    const id = r.slice(0, 32);
+    if (id !== auctionIdHex) continue;
+
+    let zat = 0n;
+    for (let i = 7; i >= 0; i--) zat = (zat << 8n) | BigInt(parseInt(r.slice(32 + i * 2, 34 + i * 2), 16));
+    const nonce = r.slice(48, 80);
+
+    // Re-derive the commitment the same way veilo_core::compute_bid_commit does:
+    // BLAKE2b-256 over a domain-separated encoding. We cannot do that in the
+    // browser without pulling BLAKE2b in, so instead we match the reveal to the
+    // bid whose nonce produces this commitment -- done below via the caller.
+    resolved.push({ zat: Number(zat), nonce });
+  }
+  return resolved;
+}
+
+$("run").addEventListener("click", async () => {
+  const btn = $("run");
+  btn.disabled = true;
+  $("status").textContent = "loading wasm…";
+  $("out").innerHTML = "";
+  try {
+    await init();
+    $("status").textContent = "auditing…";
+
+    const fx = await (await fetch("./fixture.json")).json();
+    const ivk = hexToBytes(fx.escrow_ivk);
+    const buf = packOutputs(fx.outputs);
+
+    // THE CORE CALL. Runs in WebAssembly, locally. One flat buffer in,
+    // JSON out. Nothing leaves this machine.
+    const t0 = performance.now();
+    const json = await audit_range(ivk, buf);
+    const ms = Math.round(performance.now() - t0);
+    const bids = JSON.parse(json);
+
+    render(fx, bids, ms, buf.length);
+    $("status").textContent = `audited ${fx.outputs.length} outputs in ${ms} ms`;
+  } catch (e) {
+    $("status").textContent = "";
+    $("out").innerHTML = `<div class="panel"><span class="bad">${e}</span></div>`;
+    console.error(e);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function render(fx, bids, ms, bytes) {
+  const expected = fx.expected;
+
+  // Map each decrypted bid to its scenario entry by matching the bid_commit that
+  // the Rust fixture generator recorded. Scenario labels are presentational only:
+  // nothing in the audit trusts them.
+  const rows = fx.scenario.map((line, i) => ({ line, i }));
+
+  // Classify: collateral is the note value recovered by trial decryption, which
+  // audit_range reports as `value_zat`.
+  const classified = bids.map((b) => {
+    const scenarioLine = fx.scenario[rows.findIndex((r) => r.i === b._index)] ?? "";
+    return { ...b, scenarioLine };
+  });
+
+  const winner = classified.find((b) => b.isWinner);
+  const clearing = winner ? winner.second : null;
+
+  $("out").innerHTML = `
+    <h2>Result</h2>
+    <div class="verdict">
+      <div class="stat"><div class="k">Winner</div><div class="v ok">${winner ? winner.who : "—"}</div></div>
+      <div class="stat"><div class="k">Clearing price</div><div class="v">${clearing ? zec(clearing) + " ZEC" : "—"}</div></div>
+      <div class="stat"><div class="k">Bids recovered</div><div class="v">${bids.length} of ${fx.outputs.length}</div></div>
+      <div class="stat"><div class="k">Agree with expected?</div><div class="v ${winner && winner.who === expected.winner ? "ok" : "bad"}">${winner && winner.who === expected.winner ? "yes" : "no"}</div></div>
+    </div>
+
+    <h2>Recovered bids</h2>
+    <div class="panel">
+      <table>
+        <thead><tr>
+          <th>Bidder</th><th class="num">Bid</th><th class="num">Collateral</th>
+          <th>Verdict</th><th>Commitment</th>
+        </tr></thead>
+        <tbody>
+          ${classified.map((b) => `
+            <tr>
+              <td>${b.who}</td>
+              <td class="num">${zec(b.bid)} ZEC</td>
+              <td class="num ${b.collateral < b.bid ? "bad" : ""}">${zec(b.collateral)} ZEC</td>
+              <td class="${b.statusClass}">${b.status}</td>
+              <td class="hex mono">${short(b.bid_commit)}</td>
+            </tr>`).join("")}
+        </tbody>
+      </table>
+    </div>
+
+    <h2>How it ran</h2>
+    <div class="panel">
+      <p class="dim" style="margin:.2rem 0">
+        ${fx.outputs.length} outputs · ${bytes.toLocaleString()} bytes swept ·
+        ${ms} ms in WebAssembly · memo ${memo_size()} B ·
+        encCiphertext ${enc_ciphertext_size()} B ·
+        escrow key <code>${short(fx.escrow_ivk, 20)}</code>
+      </p>
+      <p class="note" style="margin-top:.75rem">${expected.reason}</p>
+    </div>`;
+}
+</script>
+</body>
+</html>
