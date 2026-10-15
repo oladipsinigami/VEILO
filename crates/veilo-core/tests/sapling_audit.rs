@@ -287,13 +287,8 @@ mod json {
     }
 
     pub fn str_field<'a>(text: &'a str, key: &str) -> &'a str {
-        let start = key_start(text, key)
-            .unwrap_or_else(|| panic!("missing key {key}"))
-            + 1; // skip the opening quote
-        let start = text
-            .find(&needle)
-            .unwrap_or_else(|| panic!("missing key {key}"))
-            + needle.len();
+        // +1 skips the opening quote that follows the colon.
+        let start = key_start(text, key).unwrap_or_else(|| panic!("missing key {key}")) + 1;
         let rest = &text[start..];
         let end = rest.find('"').expect("unterminated string");
         &rest[..end]
@@ -312,9 +307,8 @@ mod json {
 
     /// Every hex string in the array stored under `key`.
     pub fn hex_array(text: &str, key: &str) -> Vec<String> {
-        let start = key_start(text, key)
-            .unwrap_or_else(|| panic!("missing array {key}"))
-            + 1; // skip the opening bracket
+        // +1 skips the opening bracket that follows the colon.
+        let start = key_start(text, key).unwrap_or_else(|| panic!("missing array {key}")) + 1;
         let rest = &text[start..];
         let end = rest.find(']').expect("unterminated array");
         rest[..end]
