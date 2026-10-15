@@ -28,7 +28,9 @@ use rand::rngs::StdRng;
 use rand::SeedableRng;
 
 const ZEC: u64 = 100_000_000;
-const AUCTION_ID: [u8; 16] = *b"veilo-demo-0001";
+// Exactly 16 bytes: AUCTION_ID_SIZE. Not 15 -- a byte literal is its own
+// length, so this is an easy off-by-one to introduce.
+const AUCTION_ID: [u8; 16] = *b"veilo-demo-auct1";
 
 /// Escrow viewing key for the demo: scalar 1, the smallest legal value in
 /// {1 .. 2^251-1}, so it is stable and obviously synthetic.
