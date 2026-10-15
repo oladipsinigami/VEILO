@@ -267,8 +267,29 @@ struct Resolved {
 /// Pulling serde in for one fixture would be the wrong trade: this only needs a
 /// couple of scalar lookups, and a hand-rolled reader here is easy to audit.
 mod json {
+    /// Find `"key":` allowing any amount of whitespace after the colon.
+    ///
+    /// Hand-rolled readers usually assume one exact separator and then fail on
+    /// a file that is merely formatted differently -- which is exactly what
+    /// happened here: the fixture's `expected` block is emitted compactly while
+    /// everything else is pretty-printed.
+    fn key_start(text: &str, key: &str) -> Option<usize> {
+        let needle = format!("\"{key}\":");
+        let mut from = 0;
+        while let Some(rel) = text[from..].find(&needle) {
+            let at = from + rel + needle.len();
+            if text[at..].starts_with(|c: char| c.is_whitespace()) {
+                return Some(at + text[at..].len() - text[at..].trim_start().len());
+            }
+            from += rel + needle.len();
+        }
+        None
+    }
+
     pub fn str_field<'a>(text: &'a str, key: &str) -> &'a str {
-        let needle = format!("\"{key}\": \"");
+        let start = key_start(text, key)
+            .unwrap_or_else(|| panic!("missing key {key}"))
+            + 1; // skip the opening quote
         let start = text
             .find(&needle)
             .unwrap_or_else(|| panic!("missing key {key}"))
@@ -279,11 +300,7 @@ mod json {
     }
 
     pub fn num_field(text: &str, key: &str) -> u64 {
-        let needle = format!("\"{key}\": ");
-        let start = text
-            .find(&needle)
-            .unwrap_or_else(|| panic!("missing key {key}"))
-            + needle.len();
+        let start = key_start(text, key).unwrap_or_else(|| panic!("missing key {key}"));
         let rest = &text[start..];
         let end = rest
             .find(|c: char| !c.is_ascii_digit())
@@ -295,11 +312,9 @@ mod json {
 
     /// Every hex string in the array stored under `key`.
     pub fn hex_array(text: &str, key: &str) -> Vec<String> {
-        let needle = format!("\"{key}\": [");
-        let start = text
-            .find(&needle)
+        let start = key_start(text, key)
             .unwrap_or_else(|| panic!("missing array {key}"))
-            + needle.len();
+            + 1; // skip the opening bracket
         let rest = &text[start..];
         let end = rest.find(']').expect("unterminated array");
         rest[..end]
@@ -351,7 +366,7 @@ fn the_fixture_audits_to_the_stated_outcome() {
     let escrow_ivk = arr32(json::str_field(&fx, "escrow_ivk"));
     let auction_id = unhex(json::str_field(&fx, "auction_id"));
     let seller_epk_bid = json::str_field(&fx, "seller_epk_bid").to_string();
-    let expected_text = format!("\"expected\": {{");
+    let expected_text = "\"expected\": {";
     let expected_block = &fx[fx.find(&expected_text).expect("expected block")..];
     let expected_winner = json::str_field(expected_block, "winner");
     let expected_price = json::num_field(expected_block, "clearing_price_zat");

@@ -118,7 +118,7 @@ fn decoy(index: u8, rng: &mut StdRng) -> Vec<u8> {
 fn main() {
     let mut rng = StdRng::from_seed([7u8; 32]);
 
-    let participants = vec![
+    let participants = [
         Participant { label: "Bob",   bid_zat: 70 * ZEC, collateral_zat: 70 * ZEC, nonce: [0xB0; 16], is_seller: false, decoys_after: 1 },
         Participant { label: "Carol", bid_zat: 60 * ZEC, collateral_zat: 60 * ZEC, nonce: [0xC0; 16], is_seller: false, decoys_after: 1 },
         Participant { label: "Alice", bid_zat: 65 * ZEC, collateral_zat: 65 * ZEC, nonce: [0xA1; 16], is_seller: true,  decoys_after: 1 },
