@@ -361,7 +361,7 @@ fn the_fixture_audits_to_the_stated_outcome() {
     let auction_id = unhex(json::str_field(&fx, "auction_id"));
     let seller_epk_bid = json::str_field(&fx, "seller_epk_bid").to_string();
     let expected_text = "\"expected\": {";
-    let expected_block = &fx[fx.find(&expected_text).expect("expected block")..];
+    let expected_block = &fx[fx.find(expected_text).expect("expected block")..];
     let expected_winner = json::str_field(expected_block, "winner");
     let expected_price = json::num_field(expected_block, "clearing_price_zat");
 
