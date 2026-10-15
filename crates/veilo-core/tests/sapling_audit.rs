@@ -267,35 +267,29 @@ struct Resolved {
 /// Pulling serde in for one fixture would be the wrong trade: this only needs a
 /// couple of scalar lookups, and a hand-rolled reader here is easy to audit.
 mod json {
-    /// Find `"key":` allowing any amount of whitespace after the colon.
+    /// Byte offset of the first non-space character after `"key":`.
     ///
-    /// Hand-rolled readers usually assume one exact separator and then fail on
-    /// a file that is merely formatted differently -- which is exactly what
-    /// happened here: the fixture's `expected` block is emitted compactly while
-    /// everything else is pretty-printed.
-    fn key_start(text: &str, key: &str) -> Option<usize> {
+    /// Whitespace after the colon is optional, not required. The fixture's
+    /// `expected` block is emitted compactly (`"winner":"Bob"`) while everything
+    /// else is pretty-printed (`"winner": "Bob"`), and an earlier version of
+    /// this helper demanded whitespace and so could only read one of the two.
+    fn value_start(text: &str, key: &str) -> Option<usize> {
         let needle = format!("\"{key}\":");
-        let mut from = 0;
-        while let Some(rel) = text[from..].find(&needle) {
-            let at = from + rel + needle.len();
-            if text[at..].starts_with(|c: char| c.is_whitespace()) {
-                return Some(at + text[at..].len() - text[at..].trim_start().len());
-            }
-            from += rel + needle.len();
-        }
-        None
+        let after = text.find(&needle)? + needle.len();
+        let rest = &text[after..];
+        Some(after + rest.len() - rest.trim_start().len())
     }
 
     pub fn str_field<'a>(text: &'a str, key: &str) -> &'a str {
         // +1 skips the opening quote that follows the colon.
-        let start = key_start(text, key).unwrap_or_else(|| panic!("missing key {key}")) + 1;
+        let start = value_start(text, key).unwrap_or_else(|| panic!("missing key {key}")) + 1;
         let rest = &text[start..];
         let end = rest.find('"').expect("unterminated string");
         &rest[..end]
     }
 
     pub fn num_field(text: &str, key: &str) -> u64 {
-        let start = key_start(text, key).unwrap_or_else(|| panic!("missing key {key}"));
+        let start = value_start(text, key).unwrap_or_else(|| panic!("missing key {key}"));
         let rest = &text[start..];
         let end = rest
             .find(|c: char| !c.is_ascii_digit())
@@ -308,7 +302,7 @@ mod json {
     /// Every hex string in the array stored under `key`.
     pub fn hex_array(text: &str, key: &str) -> Vec<String> {
         // +1 skips the opening bracket that follows the colon.
-        let start = key_start(text, key).unwrap_or_else(|| panic!("missing array {key}")) + 1;
+        let start = value_start(text, key).unwrap_or_else(|| panic!("missing array {key}")) + 1;
         let rest = &text[start..];
         let end = rest.find(']').expect("unterminated array");
         rest[..end]
