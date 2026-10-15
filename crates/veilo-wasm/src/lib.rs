@@ -202,20 +202,23 @@ mod core {
         let zat: u64 = bid_zat
             .parse()
             .map_err(|_| AuditError::BadRevealAmount(bid_zat.to_string()))?;
-        let commit: [u8; 32] = as_commit32(bid_commit)?;
-        let Some(commit) = commit else {
-            return Ok(false);
+        // A bid_commit that is not 32 bytes is a malformed reveal, not a
+        // mismatch. Reporting it as "does not match" would let a broken client
+        // look like a rejected bid rather than a bug.
+        let Some(commit) = as_commit32(bid_commit) else {
+            return Err(AuditError::BadLength {
+                field: "bid_commit",
+                got: bid_commit.len(),
+                want: 32,
+            });
         };
         let computed = veilo_core::memo::compute_bid_commit(auction_id, zat, nonce, epk_bid)
             .map_err(|e| AuditError::InvalidEnvelope(e.to_string()))?;
         Ok(computed == commit)
     }
 
-    fn as_commit32(bytes: &[u8]) -> Result<Option<[u8; 32]>, AuditError> {
-        match bytes.try_into() {
-            Ok(a) => Ok(Some(a)),
-            Err(_) => Ok(None),
-        }
+    fn as_commit32(bytes: &[u8]) -> Option<[u8; 32]> {
+        bytes.try_into().ok()
     }
 
     /// Audit a flat buffer of `(epk || cmu || enc_ciphertext)` records.
