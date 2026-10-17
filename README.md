@@ -129,10 +129,11 @@ Test totals, all run in CI:
 | :--- | ---: |
 | `veilo-core` unit (memo, auction) | 26 |
 | `veilo-core` cross-implementation replay (Rust ↔ TypeScript vectors) | 6 |
-| `veilo-core` audit path (`tests/sapling_audit.rs`) | 8 |
+| `veilo-core` audit path (`tests/sapling_audit.rs`) | 6 |
+| `veilo-core` demo fixture, end to end (`tests/demo_audit.rs`) | 2 |
 | `veilo-wasm` exports | 10 |
 | TypeScript (`test/*.test.js`) | 56 |
-| **total** | **106** |
+| **total** | **100** |
 
 CI also runs `cargo clippy -- -D warnings`, `cargo fmt --check`, and the
 `wasm32-unknown-unknown` build.
