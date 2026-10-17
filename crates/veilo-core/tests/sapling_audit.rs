@@ -21,7 +21,7 @@ use sapling_crypto::note::{Note, Rseed};
 use sapling_crypto::note_encryption::{sapling_note_encryption, SaplingDomain};
 use sapling_crypto::value::NoteValue;
 use veilo_core::audit::{trial_decrypt, SaplingOutput, COMPACT_NOTE_SIZE, ENC_CIPHERTEXT_SIZE};
-use veilo_core::memo::{compute_bid_commit, pack_memo, unpack_memo, MemoFields, MEMO_SIZE};
+use veilo_core::memo::{pack_memo, MemoFields, MEMO_SIZE};
 use zcash_note_encryption::Domain;
 
 use rand::rngs::StdRng;
