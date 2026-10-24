@@ -40,20 +40,56 @@ the winner's, so if the exclusion rule were missing the clearing price would be
 
 ## Verifying it yourself
 
-`ops/verify-demo.sh` runs this exact pipeline under Node against the same
-compiled wasm, and fails loudly if the result differs from the stated outcome or
-if any invariant is violated (seller never eligible, an under-collateralised bid
-always present to exercise the rule).
+`ops/verify-demo.sh` runs this exact pipeline under Node against the committed
+`demo/pkg` bundle, and fails loudly if the result differs from the stated outcome
+or if any invariant is violated (seller never eligible, an under-collateralised
+bid always present to exercise the rule).
 
 ```bash
-bash ops/build-wasm.sh     # regenerate demo/pkg
+bash ops/build-wasm.sh     # regenerate demo/pkg, if the Rust source changed
 bash ops/verify-demo.sh    # check the pipeline end to end
+# or, equivalently:
+npm run demo:audit
 ```
 
-The Rust tests (`crates/veilo-core/tests/sapling_audit.rs`) cover the same
-logic plus more. The Node check exists because the Rust tests cannot catch a
-broken wasm-bindgen ABI or a JSON contract mismatch — those only fail in a
-browser.
+That check reads the **committed** bundle rather than a fresh build, so a stale
+`demo/pkg` fails here instead of shipping.
+
+The Rust tests (`crates/veilo-core/tests/sapling_audit.rs` and
+`tests/demo_audit.rs`) cover the same logic plus more. The Node check exists
+because the Rust tests cannot catch a broken wasm-bindgen ABI or a JSON contract
+mismatch — those only fail in a browser.
+
+## The video
+
+`demo/video/veilo-demo.mp4` (and `.webm`) is a screen recording of this page
+running in Chrome, with captions burned in so it plays without narration.
+
+```bash
+npm run demo:video         # record it again in Chrome  -> demo/video/veilo-demo.webm
+npm run demo:video:mp4     # transcode to H.264        -> demo/video/veilo-demo.mp4
+```
+
+The recorder is not a stunt: it drives the real page, then **asserts the result
+it read off screen** — winner, clearing price, bids recovered, and that the page
+reported a match — before it will keep the file. It then loads the recording back
+and probes five points for real, non-identical frames. A demo that quietly
+produced a wrong number would fail the recording rather than ship as evidence.
+
+Two notes for anyone re-running it:
+
+- **HTTP Range support is required.** The recorder's own tiny server implements
+  `206 Partial Content`. Without it Chrome reports `seekable = [0, 0]` and
+  silently refuses to seek, so every probe reads frame zero — which looks exactly
+  like a corrupt video and is not.
+- **The MP4 step is browser-based on purpose.** There is no ffmpeg on this
+  machine and Windows Smart App Control blocks static npm binaries, so Chrome
+  encodes H.264 through `MediaRecorder`. Chrome then writes `mdhd.duration` using
+  the movie timescale value, so `ops/webm-to-mp4.mjs` repairs that field and
+  rescales sample durations to the known source duration. It verifies the result
+  by seeking three points and decoding pixels.
+
+The transcoder is optional — the WebM alone plays in every modern browser.
 
 ## Honesty note
 

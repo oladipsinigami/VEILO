@@ -4,6 +4,10 @@ dist/
 *.tsbuildinfo
 .DS_Store
 
+# scratch dir for the demo recorder; the finished video is committed, the
+# intermediate Playwright output is not
+/.record-tmp/
+
 # regtest secrets: the miner WIF is a real private key (regtest-only, but still
 # a key file that should never enter version control)
 /ops/keys/

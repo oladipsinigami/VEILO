@@ -9,10 +9,22 @@
 // Exits non-zero on any mismatch, so it is safe to wire into CI.
 
 import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
+import init, {
+  audit_range,
+  verify_reveal,
+  memo_size,
+  enc_ciphertext_size,
+  compact_note_size,
+} from "../demo/pkg/veilo_wasm.js";
 
-const require = createRequire(import.meta.url);
-const wasm = require("/tmp/veilo-node/veilo_wasm.js");
+// Load the committed bundle, not a build-tree copy. If demo/pkg drifts from the
+// Rust source, this check fails -- which is the point: it is the same bytes the
+// browser loads.
+const wasmPath = fileURLToPath(new URL("../demo/pkg/veilo_wasm_bg.wasm", import.meta.url));
+await init({ module_or_path: readFileSync(wasmPath) });
+
+const wasm = { audit_range, verify_reveal, memo_size, enc_ciphertext_size, compact_note_size };
 
 const ZEC = 100000000;
 const hexToBytes = (h) => {

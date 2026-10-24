@@ -6,16 +6,20 @@
 # the generated JS glue, and the JSON contract between Rust and the page. A
 # mismatch there fails only in the browser, which is the worst place to find out.
 #
-# Builds a second copy of the same wasm with `--target nodejs` (so plain Node can
-# load it without a browser) and runs demo/index.html's exact pipeline against the
-# real fixture.
+# This runs the committed `demo/pkg` bundle -- the same bytes the page fetches --
+# so a stale bundle fails here too. Node can load it directly because the
+# generated glue is an ES module with an explicit `init`, which is what
+# `--target web` produces.
+#
+# Rebuild the bundle first if the Rust source changed:
+#   bash ops/build-wasm.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-echo "== building a node-loadable copy of the same wasm =="
-mkdir -p /tmp/veilo-node
-wasm-bindgen --target nodejs --out-dir /tmp/veilo-node --out-name veilo_wasm \
-  target/wasm32-unknown-unknown/release/veilo_wasm.wasm
+if [ ! -f demo/pkg/veilo_wasm_bg.wasm ]; then
+  echo "demo/pkg is missing; run: bash ops/build-wasm.sh" >&2
+  exit 1
+fi
 
-echo "== running the page's pipeline under Node =="
+echo "== running the page's pipeline under Node against demo/pkg =="
 node ops/verify-demo.mjs

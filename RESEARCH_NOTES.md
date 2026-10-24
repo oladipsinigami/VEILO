@@ -258,6 +258,58 @@ the parser rejects.
 
 ---
 
+## 14. A video that will not seek usually means the server, not the file
+
+Recording the demo video meant playing a local file back to verify it. Every
+probe returned the identical frame, and Chrome reported `seekable = [0, 0]`.
+
+The file was fine. **The test server had no HTTP Range support.** Chrome cannot
+seek a media response that does not answer `206 Partial Content`, so it clamps
+every `currentTime` assignment to zero — and each probe then reads frame zero,
+which is indistinguishable from a corrupt video.
+
+Adding `Accept-Ranges: bytes` and a single-range `206` handler changed the same
+file from `seekable = [0, 0]` to `seekable = [0, 52.84]` and five distinct
+frames.
+
+**Lesson.** Before concluding an artifact is corrupt, check that the harness
+serving it can do what the client is asking for. We had already written off a
+correct MP4 on this basis.
+
+---
+
+## 15. Chrome's `MediaRecorder` writes a wrong `mdhd.duration`
+
+Recorded WebM converted to MP4 in-browser (Chrome 152 can encode H.264 through
+`MediaRecorder`) produced a 52-second clip that reported **1.74 s**. Parsing the
+boxes by hand rather than guessing:
+
+| field | value | reads as |
+| :--- | :--- | :--- |
+| `mvhd` | timescale 1000, duration 52269 | 52.269 s ✅ |
+| `mdhd` | timescale **30000**, duration **52269** | 1.742 s ❌ |
+| `tfdt` fragments | 0 → 1,499,751 | spans the clip ✅ |
+| `mfhd` | 16 fragments, no sequence gaps | complete ✅ |
+
+`mdhd.duration` was written using the *movie* timescale value while
+`mdhd.timescale` stayed at the media timescale. Every other timing field agreed
+with a complete 52-second file. So the audio/video is all there; only one
+header field lies, and any player that trusts it reports the wrong length.
+
+A second, smaller defect: `trun` sample durations come out a few percent long,
+so the clip plays slightly slow even after fixing `mdhd`.
+
+`ops/webm-to-mp4.mjs` corrects both by parsing the fragment timeline and
+rescaling it to the known source duration. This is a timestamp rewrite, not a
+re-encode.
+
+**Lesson.** "The duration is wrong" and "the file is truncated" look identical
+from a player's error message. Reading the container apart is what separates
+them, and it took a hand-written box parser to do it because no `ffprobe` was
+available.
+
+---
+
 ## Open questions
 
 - **Zallet ↔ zebrad alignment.** Resolves itself when Zallet ships against a
