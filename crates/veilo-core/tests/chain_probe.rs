@@ -82,6 +82,21 @@ mod json {
         let end = rest.find('"').expect("unterminated string");
         &rest[..end]
     }
+
+    pub fn num_field(text: &str, key: &str) -> u64 {
+        let needle = format!("\"{key}\":");
+        let after = text
+            .find(&needle)
+            .unwrap_or_else(|| panic!("missing key {key}"))
+            + needle.len();
+        text[after..]
+            .trim_start()
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect::<String>()
+            .parse()
+            .unwrap_or_else(|_| panic!("{key} is not a number"))
+    }
 }
 
 #[test]
@@ -169,7 +184,7 @@ fn the_auditor_reads_a_mined_transaction() {
     println!(
         "txid {} (height {}) -> note of {} zat, {} memo bytes recovered",
         tx.txid(),
-        json::str_field(&probe, "block_height"),
+        json::num_field(&probe, "block_height"),
         bid.value_zat,
         bid.memo.iter().filter(|b| **b != 0).count()
     );
