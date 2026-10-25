@@ -141,6 +141,12 @@ jobs:
       - name: test the sapling audit path
         run: cargo test -p veilo-core --features sapling --test sapling_audit --verbose
 
+      # The demo fixture must audit to the outcome it claims. demo/index.html
+      # renders whatever this pipeline produces, so a silent drift here would
+      # mean the demo shows a wrong answer while the page still looks fine.
+      - name: test the demo fixture end to end
+        run: cargo test -p veilo-core --features sapling --test demo_audit --verbose
+
       - name: test the wasm auditor exports
         run: cargo test -p veilo-wasm --features sapling --verbose
 
@@ -149,6 +155,21 @@ jobs:
 
       - name: build the browser auditor
         run: cargo build -p veilo-wasm --features sapling --target wasm32-unknown-unknown
+
+      # Generate the wasm-bindgen bindings the browser actually loads, and check
+      # them. `cargo build --target wasm32` alone produces a .wasm no browser can
+      # call, so a broken ABI or a JSON contract mismatch between Rust and the
+      # page would only surface in a browser. This runs demo/index.html's exact
+      # pipeline under Node against the real fixture using the same module.
+      - name: build the demo bundle
+        run: bash ops/build-wasm.sh
+      - name: verify the browser pipeline
+        run: bash ops/verify-demo.sh
+      - name: upload the demo bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: veilo-demo-bundle
+          path: demo/pkg
 
   # ---------------------------------------------------------------------------
   # 3. The browser auditor target: veilo-core -> wasm32-unknown-unknown
@@ -192,7 +213,40 @@ jobs:
         run: node ops/validate-config.mjs
 
   # ---------------------------------------------------------------------------
-  # 5. The one that needs a real Zcash node: regtest, end to end
+  # 5. The demo page, in a real browser
+  #
+  # No amount of Rust coverage can see a blank screen. This opens the page in
+  # Chrome and meets it the way a person does: nothing audited yet, a loading
+  # state, an error with a retry that works, a visible focus ring, and 375px
+  # without a sideways scroll. It also re-runs the audit pipeline against the
+  # committed wasm, so a page that renders 60.00 ZEC from a stale bundle fails.
+  # ---------------------------------------------------------------------------
+  demo:
+    name: demo (real browser)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install --no-audit --no-fund
+
+      # Google Chrome is preinstalled on the ubuntu-24.04 runner image, so
+      # playwright-core drives that rather than downloading a browser. If the
+      # image ever drops Chrome, this fails loudly instead of skipping.
+      - name: confirm a browser exists
+        run: |
+          command -v google-chrome || command -v google-chrome-stable \
+            || { echo "::error::no Chrome on this runner"; exit 1; }
+
+      - name: the page's states, in Chrome
+        run: npm run demo:states
+
+      - name: the audit arithmetic, in Node
+        run: npm run demo:audit
+
+  # ---------------------------------------------------------------------------
+  # 6. The one that needs a real Zcash node: regtest, end to end
   #
   # MANUAL DISPATCH ONLY, deliberately. This job cannot pass on this project:
   # zebrad has no wallet, and its internal miner cannot build a regtest block 1
@@ -341,7 +395,7 @@ jobs:
         run: pkill -f zebrad || true
 
   # ---------------------------------------------------------------------------
-  # 6. The real wallet stack: zebrad + Zallet on regtest
+  # 7. The real wallet stack: zebrad + Zallet on regtest
   #
   # This replaces the `regtest` job above, which tried to make zebrad do wallet
   # work it cannot do (it has no wallet at all: z_getnewaddress, z_getbalance
