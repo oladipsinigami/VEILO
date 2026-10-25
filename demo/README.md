@@ -55,6 +55,22 @@ npm run demo:audit
 That check reads the **committed** bundle rather than a fresh build, so a stale
 `demo/pkg` fails here instead of shipping.
 
+### Checking the states a person meets
+
+`ops/check-demo-states.mjs` drives the real page in Chrome and checks the parts
+an arithmetic test cannot see: the empty state before the run, the loading state
+during it, the plain-language error with a retry that actually recovers, the
+keyboard focus ring, and the 375px layout. It exists because the demo's failure
+mode was never "wrong number" — it was "blank screen with no explanation".
+
+```bash
+npm run demo:states
+```
+
+It fails if the error message ever shows a raw exception again, if a result
+appears before the button is pressed, if the page scrolls sideways on a phone,
+or if Tab does not reach the button.
+
 The Rust tests (`crates/veilo-core/tests/sapling_audit.rs` and
 `tests/demo_audit.rs`) cover the same logic plus more. The Node check exists
 because the Rust tests cannot catch a broken wasm-bindgen ABI or a JSON contract

@@ -149,7 +149,7 @@ async function caption(page, text) {
         "padding:18px 28px",
         "font:600 19px/1.45 ui-sans-serif,system-ui,sans-serif",
         "color:#f4f6fb",
-        "background:linear-gradient(90deg,#0b1020f2,#161d33f2)",
+        "background:linear-gradient(90deg,#0b1020,#161d33)",
         "border-top:1px solid #2c3557",
         "letter-spacing:.1px",
       ].join(";");
@@ -203,11 +203,11 @@ try {
   await shot(page, 2600);
   await caption(page, "Veilo: a sealed-bid auction whose seller never sees a single bid.");
   await shot(page, 3400);
-  await caption(page, "The seller publishes a viewing key. It can read the escrow — it cannot spend, and no bid key exists.");
+  await caption(page, "The seller publishes a viewing key. It decrypts every memo — and a memo holds a commitment, not an amount.");
   await shot(page, 3800);
 
   // Scene 2 — the auction runs.
-  await caption(page, "Auction 0101…0101: Bob 70, Carol 60, David 45 ZEC, reserve 50. The seller bids 65 on her own auction.");
+  await caption(page, "Five bidders: Bob 70, Carol 60, David 45, Erin 55 ZEC. Reserve 50. The seller bids 65 on her own auction.");
   await shot(page, 3800);
   await caption(page, "Bids are sealed in the memo of a shielded Sapling transfer. On-chain, a bid is a commitment and nothing else.");
   await shot(page, 3800);
@@ -215,7 +215,7 @@ try {
   // Scene 3 — the audit. This is the whole project.
   await caption(page, "Deadline. Reveals are public. Anyone can now check the result.");
   await shot(page, 2600);
-  await caption(page, "Run the audit: the browser loads WebAssembly and trial-decrypts ten real 580-byte chain ciphertexts.");
+  await caption(page, "Run the audit: the browser loads WebAssembly and trial-decrypts ten real 580-byte Sapling ciphertexts.");
   await page.click("#run");
   await page.waitForFunction(() => /audited \d+ outputs/.test(document.body.innerText), null, { timeout: 20000 });
   await caption(page, "One viewing key, no server, no network calls. The auctioneer is not in the loop.");

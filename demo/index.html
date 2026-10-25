@@ -9,57 +9,125 @@
     --bg: #0d1117; --panel: #161b22; --line: #30363d;
     --ink: #e6edf3; --dim: #8b949e;
     --ok: #3fb950; --bad: #f85149; --warn: #d29922; --accent: #58a6ff;
+    --radius: 8px; --radius-sm: 6px; --radius-xs: 4px;
   }
   * { box-sizing: border-box; }
   body { margin: 0; padding: 2rem 1.25rem 4rem; background: var(--bg); color: var(--ink);
          font: 15px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
   main { max-width: 62rem; margin: 0 auto; }
+  a { color: var(--accent); }
   h1 { font-size: 1.5rem; margin: 0 0 .25rem; letter-spacing: -.01em; }
   h2 { font-size: .78rem; text-transform: uppercase; letter-spacing: .08em;
        color: var(--dim); margin: 2rem 0 .75rem; }
+  .claim { font-size: 1.15rem; font-weight: 600; margin: 0 0 .5rem; }
   p.lede { color: var(--dim); margin: 0 0 1.5rem; max-width: 46rem; }
   code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85em; }
   .panel { background: var(--panel); border: 1px solid var(--line);
-           border-radius: 8px; padding: 1rem 1.15rem; }
-  button { background: var(--accent); color: #04121f; border: 0; border-radius: 6px;
+           border-radius: var(--radius); padding: 1rem 1.15rem; }
+  button { background: var(--accent); color: #04121f; border: 0; border-radius: var(--radius-sm);
            padding: .55rem 1rem; font-weight: 600; font-size: .9rem; cursor: pointer; }
   button:disabled { opacity: .5; cursor: default; }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   table { width: 100%; border-collapse: collapse; font-size: .9rem; }
   th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--line); }
   th { color: var(--dim); font-weight: 600; font-size: .76rem;
        text-transform: uppercase; letter-spacing: .05em; }
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* Wide tables scroll rather than break the layout on a phone. */
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table-scroll table { min-width: 34rem; }
+
   .verdict { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .75rem; }
   .stat { background: var(--panel); border: 1px solid var(--line);
-          border-radius: 8px; padding: .85rem 1rem; }
+          border-radius: var(--radius); padding: .85rem 1rem; }
   .stat .k { color: var(--dim); font-size: .7rem; text-transform: uppercase; letter-spacing: .07em; }
   .stat .v { font-size: 1.3rem; font-weight: 650; margin-top: .15rem; }
+
+  /* One colour, one meaning: green = accepted, red = rejected as invalid,
+     yellow = rejected by a stated rule, grey = excluded by design.  */
   .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+  .neutral { color: var(--dim); }
   .dim { color: var(--dim); }
-  .tag { display: inline-block; padding: .08rem .4rem; border-radius: 4px;
+
+  .tag { display: inline-block; padding: .08rem .4rem; border-radius: var(--radius-xs);
          font-size: .72rem; font-weight: 600; border: 1px solid currentColor; }
+  .tag-seller { margin-left: .4rem; }
   .note { border-left: 3px solid var(--warn); padding: .6rem .9rem; background: #1c2128;
-          border-radius: 0 6px 6px 0; color: var(--dim); font-size: .88rem; }
+          border-radius: 0 var(--radius-sm) var(--radius-sm) 0; color: var(--dim); font-size: .88rem; }
+  .note-tight { margin-top: .75rem; }
   .hex { color: var(--dim); font-size: .78rem; }
-  .swatch { display:inline-block; width:.7rem; height:.7rem; border-radius:2px; margin-right:.4rem; }
+  .status { margin-left: .75rem; }
+  .of-total { font-size: .6em; }
+  .meta { margin: .2rem 0; }
+  .provenance { color: var(--dim); font-size: .84rem; margin: .75rem 0 0; max-width: 46rem; }
+  .provenance a { color: var(--dim); text-decoration: underline; }
+
+  .empty p { margin: .2rem 0; }
+  .empty .dim { font-size: .9rem; }
+
+  /* A panel that follows the button block needs a gap; named so no inline
+     style has to carry it. */
+  .spaced { margin-top: .75rem; }
+
+  /* Loading placeholder: four bars shaped roughly like the verdict grid. */
+  .skeleton .bar { background: #21262d; border-radius: var(--radius-xs); height: .9rem; }
+  .skeleton .bar + .bar { margin-top: .6rem; }
+  .skeleton .bar.w1 { width: 32%; } .skeleton .bar.w2 { width: 58%; }
+  .skeleton .bar.w3 { width: 44%; } .skeleton .bar.w4 { width: 70%; }
+
+  .error { border-color: var(--bad); }
+  .error h2 { margin: 0 0 .5rem; color: var(--bad); text-transform: none;
+              letter-spacing: 0; font-size: .95rem; }
+  .error p { margin: 0 0 .9rem; }
+  .error details { margin-top: .9rem; color: var(--dim); font-size: .84rem; }
+  .error summary { cursor: pointer; }
+  .error pre { white-space: pre-wrap; word-break: break-word; margin: .5rem 0 0; }
+  .error button { background: var(--accent); }
+
+  .next { margin: 0; padding-left: 1.1rem; }
+  .next li { margin: .3rem 0; }
+  .next .dim { font-size: .86rem; }
 </style>
 </head>
 <body>
 <main>
   <h1>Veilo — independent auction audit</h1>
+  <p class="claim">Check an auction result without trusting the seller.</p>
   <p class="lede">
-    Recompute a sealed-bid auction's clearing price from chain ciphertexts, in your
-    browser, using nothing but the seller's public <em>viewing</em> key. That key can
-    read the escrow but cannot spend from it, so the seller never had the ability to
-    see a single bid.
+    Ten shielded outputs were published: five sealed bids and five decoys
+    belonging to other addresses. This page decrypts all ten with the seller's
+    public <em>viewing</em> key and recomputes the winner and the clearing price —
+    the price the winner actually pays — in your browser.
+  </p>
+  <p class="lede">
+    That key is the most the seller ever holds, and it still does not reveal an
+    amount: each memo carries a 32-byte commitment to a bid, which cannot be
+    opened without the bidder's own reveal.
   </p>
 
   <div class="panel">
-    <button id="run">Run the audit</button>
-    <span id="status" class="dim" style="margin-left:.75rem"></span>
+    <button id="run" type="button">Run the audit</button>
+    <span id="status" class="dim status" role="status" aria-live="polite"></span>
   </div>
 
-  <div id="out"></div>
+  <div id="out" aria-busy="false">
+    <div class="panel empty spaced">
+      <p><strong>Nothing audited yet.</strong></p>
+      <p class="dim">
+        Press <em>Run the audit</em> above. It runs entirely on this machine,
+        sends nothing anywhere, and reports how long it took.
+      </p>
+    </div>
+  </div>
+
+  <noscript>
+    <div class="panel error spaced">
+      <h2>JavaScript is turned off</h2>
+      <p>This audit runs entirely in your browser, so it needs JavaScript enabled.
+         There is no server to fall back to — that is the point.</p>
+    </div>
+  </noscript>
 
   <h2>What this is and is not</h2>
   <div class="note">
@@ -68,8 +136,20 @@
     decryption above is genuine — there is no mock anywhere. <strong>They were not
     mined on a chain.</strong> This demonstrates the cryptography and the auction
     arithmetic, not transaction broadcast; that is a separate claim, currently
-    blocked on a Zallet/zebra state-format gap.
+    blocked on a Zallet/zebra state-format gap. The viewing key shown with the
+    result is a deterministic test value, which is why it looks like a
+    placeholder.
   </div>
+
+  <h2>Where to go next</h2>
+  <ul class="next">
+    <li><a href="https://github.com/oladipsinigami/VEILO/blob/main/crates/veilo-core/src/audit.rs">The trial-decryption and block sweep</a>
+        <span class="dim">— the code that did the work above.</span></li>
+    <li><a href="https://github.com/oladipsinigami/VEILO/blob/main/crates/veilo-core/examples/demo_fixture.rs">The fixture generator</a>
+        <span class="dim">— where the expected result comes from.</span></li>
+    <li><a href="https://github.com/oladipsinigami/VEILO#readme">How Veilo works, and what is not built yet</a>
+        <span class="dim">— including the parts of this demo that are still missing.</span></li>
+  </ul>
 </main>
 
 <script type="module">
@@ -86,6 +166,11 @@ const hexToBytes = (h) => {
 };
 const short = (h, n = 12) => h.slice(0, n) + "…";
 const zec = (zat) => (zat / ZEC).toFixed(2);
+
+/** Escape anything interpolated into markup. Error text is not ours to trust. */
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => (
+  { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+));
 
 /** Concatenate the hex records into the flat buffer audit_range expects. */
 function packOutputs(records) {
@@ -115,7 +200,9 @@ function decodeReveal(hex, auctionIdHex) {
 async function audit() {
   await init();
 
-  const fx = await (await fetch("./fixture.json")).json();
+  const res = await fetch("./fixture.json");
+  if (!res.ok) throw new Error(`fixture.json: HTTP ${res.status}`);
+  const fx = await res.json();
   const ivk = hexToBytes(fx.escrow_ivk);
   const buf = packOutputs(fx.outputs);
 
@@ -131,7 +218,8 @@ async function audit() {
     const epk = hexToBytes(b.epk_bid);
     const commit = hexToBytes(b.bid_commit);
 
-    // Find the reveal whose amount hashes to the commitment already on chain.
+    // Find the reveal whose amount hashes to the commitment published in the
+    // memo.
     // This is the check that stops a bidder changing their number at the
     // deadline once they can see everyone else's.
     let matched = null;
@@ -147,11 +235,13 @@ async function audit() {
     const collateral = b.value_zat;
     const isSeller = b.epk_bid === sellerEpk;
 
+    // cls drives colour only. neutral = excluded by a stated rule (expected),
+    // warn = rejected by a threshold, bad = invalid.
     let status, cls;
     if (bidZat === null) {
       status = "no valid reveal"; cls = "bad";
     } else if (isSeller) {
-      status = "seller — excluded"; cls = "warn";
+      status = "seller — excluded"; cls = "neutral";
     } else if (collateral < bidZat) {
       status = "under-collateralised"; cls = "bad";
     } else if (bidZat < fx.reserve_zat) {
@@ -188,39 +278,49 @@ function render({ fx, rows, winner, clearingPrice, ms, swept }) {
       <div class="stat"><div class="k">Clearing price</div>
         <div class="v">${clearingPrice != null ? zec(clearingPrice) + " ZEC" : "—"}</div></div>
       <div class="stat"><div class="k">Bids recovered</div>
-        <div class="v">${rows.length} <span class="dim" style="font-size:.6em">of ${fx.outputs.length}</span></div></div>
+        <div class="v">${rows.length} <span class="dim of-total">of ${fx.outputs.length}</span></div></div>
       <div class="stat"><div class="k">Matches stated result</div>
         <div class="v ${agrees ? "ok" : "bad"}">${agrees ? "yes" : "no"}</div></div>
     </div>
 
+    <p class="provenance">
+      That last figure is not this page marking its own work. The expected value
+      is generated separately by the Rust reference in
+      <a href="https://github.com/oladipsinigami/VEILO/blob/main/crates/veilo-core/examples/demo_fixture.rs">demo_fixture.rs</a>
+      and stored in the fixture. This page either reproduces it from the
+      ciphertexts or it does not.
+    </p>
+
     <h2>Recovered bids</h2>
     <div class="panel">
-      <table>
-        <thead><tr>
-          <th>Bidder</th><th class="num">Bid</th><th class="num">Collateral</th>
-          <th>Status</th><th>Bidder key</th>
-        </tr></thead>
-        <tbody>${rows.map((r) => `
-          <tr>
-            <td><span class="hex mono">${short(r.epk_bid, 10)}</span>
-                ${r.isSeller ? '<span class="tag warn" style="margin-left:.4rem">seller</span>' : ""}</td>
-            <td class="num">${r.bidZat != null ? zec(r.bidZat) + " ZEC" : "—"}</td>
-            <td class="num ${r.collateral < (r.bidZat ?? 0) ? "bad" : ""}">${zec(r.collateral)} ZEC</td>
-            <td class="${r.cls}">${r.status}</td>
-            <td class="hex mono">${short(r.bid_commit, 10)}</td>
-          </tr>`).join("")}</tbody>
-      </table>
+      <div class="table-scroll">
+        <table>
+          <thead><tr>
+            <th>Bidder</th><th class="num">Bid</th><th class="num">Collateral</th>
+            <th>Status</th><th>Bidder key</th>
+          </tr></thead>
+          <tbody>${rows.map((r) => `
+            <tr>
+              <td><span class="hex mono">${short(r.epk_bid, 10)}</span>
+                  ${r.isSeller ? '<span class="tag neutral tag-seller">seller</span>' : ""}</td>
+              <td class="num">${r.bidZat != null ? zec(r.bidZat) + " ZEC" : "—"}</td>
+              <td class="num ${r.collateral < (r.bidZat ?? 0) ? "bad" : ""}">${zec(r.collateral)} ZEC</td>
+              <td class="${r.cls}">${r.status}</td>
+              <td class="hex mono">${short(r.bid_commit, 10)}</td>
+            </tr>`).join("")}</tbody>
+        </table>
+      </div>
     </div>
 
     <h2>How it ran</h2>
     <div class="panel">
-      <p class="dim" style="margin:.2rem 0">
+      <p class="dim meta">
         ${fx.outputs.length} outputs · ${swept.toLocaleString()} bytes swept ·
         ${ms} ms in WebAssembly · memo ${memo_size()} B ·
         encCiphertext ${enc_ciphertext_size()} B (compact is ${compact_note_size()} B) ·
         escrow viewing key <code>${short(fx.escrow_ivk, 20)}</code>
       </p>
-      <p class="note" style="margin-top:.75rem">
+      <p class="note note-tight">
         The compact ${compact_note_size()}-byte form carries no memo at all, which is why
         an auditor fed by a light client could never do this job. Clearing price is the
         second-highest eligible bid after the seller's own bid and any
@@ -229,11 +329,71 @@ function render({ fx, rows, winner, clearingPrice, ms, swept }) {
     </div>`;
 }
 
-$("run").addEventListener("click", async () => {
+/**
+ * Turn a thrown value into something a person can act on.
+ *
+ * The raw exception goes in a collapsed <details> rather than in the user's
+ * face: it is useful to whoever is debugging and noise to everyone else.
+ */
+function describeError(e) {
+  const msg = String(e?.message ?? e ?? "");
+  if (/fetch|network|load failed|HTTP \d/i.test(msg)) {
+    return {
+      title: "Couldn't load the demo data",
+      body: "The page couldn't fetch the fixture or the WebAssembly auditor. " +
+            "Check your connection, then try again. If you opened this file " +
+            "directly, serve it over HTTP instead — browsers block module " +
+            "imports on file:// URLs.",
+    };
+  }
+  if (/wasm|WebAssembly|instantiate|magic word/i.test(msg)) {
+    return {
+      title: "The auditor didn't start",
+      body: "This browser couldn't load the WebAssembly module. A recent " +
+            "Chrome, Firefox, Safari or Edge will work.",
+    };
+  }
+  return {
+    title: "The audit didn't finish",
+    body: "Something went wrong while recomputing the result. Try again — and " +
+          "if it keeps happening, the technical detail below is worth reporting.",
+  };
+}
+
+function renderError(e) {
+  const { title, body } = describeError(e);
+  $("out").innerHTML = `
+    <h2>Result</h2>
+    <div class="panel error" role="alert">
+      <h2>${escapeHtml(title)}</h2>
+      <p>${escapeHtml(body)}</p>
+      <button id="retry" type="button">Try again</button>
+      <details>
+        <summary>Technical detail</summary>
+        <pre>${escapeHtml(String(e?.stack ?? e?.message ?? e))}</pre>
+      </details>
+    </div>`;
+  $("retry").addEventListener("click", runAudit);
+}
+
+let running = false;
+
+async function runAudit() {
+  if (running) return;
+  running = true;
+
   const btn = $("run");
   btn.disabled = true;
-  $("status").textContent = "loading wasm…";
-  $("out").innerHTML = "";
+  btn.setAttribute("aria-busy", "true");
+  $("out").setAttribute("aria-busy", "true");
+  $("status").textContent = "loading the auditor…";
+  $("out").innerHTML = `
+    <h2>Result</h2>
+    <div class="panel skeleton" aria-hidden="true">
+      <div class="bar w1"></div><div class="bar w2"></div>
+      <div class="bar w3"></div><div class="bar w4"></div>
+    </div>`;
+
   try {
     const result = await audit();
     render(result);
@@ -241,12 +401,17 @@ $("run").addEventListener("click", async () => {
       `audited ${result.fx.outputs.length} outputs in ${result.ms} ms`;
   } catch (e) {
     $("status").textContent = "";
-    $("out").innerHTML = `<div class="panel"><span class="bad">${e}</span></div>`;
+    renderError(e);
     console.error(e);
   } finally {
+    running = false;
     btn.disabled = false;
+    btn.removeAttribute("aria-busy");
+    $("out").setAttribute("aria-busy", "false");
   }
-});
+}
+
+$("run").addEventListener("click", runAudit);
 </script>
 </body>
 </html>

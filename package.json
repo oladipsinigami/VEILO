@@ -8,6 +8,7 @@
     "test": "node --experimental-strip-types --test \"test/*.test.js\"",
     "typecheck": "tsc --noEmit",
     "demo:audit": "node ops/verify-demo.mjs",
+    "demo:states": "node ops/check-demo-states.mjs",
     "demo:video": "node ops/record-demo.mjs",
     "demo:video:mp4": "node ops/webm-to-mp4.mjs"
   },
