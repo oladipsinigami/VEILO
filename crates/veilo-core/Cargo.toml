@@ -39,3 +39,16 @@ sapling = ["dep:sapling-crypto", "dep:zcash_note_encryption"]
 sapling-crypto = { version = "0.9", default-features = false, features = ["std"] }
 zcash_note_encryption = { version = "0.5.1", default-features = false, features = ["alloc"] }
 rand = "0.10"
+
+# --- reading a real mined transaction (tests/chain_probe.rs) --------------
+# Pinned to the same Sapling stack the crate itself uses: zcash_primitives 0.31
+# and zcash_keys 0.17 both depend on sapling-crypto ^0.9, so the output type
+# parsed here is the same type the auditor decrypts. Bumping either without
+# bumping the others would make the test fail to compile rather than silently
+# proving something about a different library.
+#
+# `circuits` is left off deliberately: the auditor never builds a proof, and
+# enabling proving pulls in the parameter-loading machinery for no benefit.
+zcash_primitives = { version = "0.31", default-features = false, features = ["std"] }
+zcash_keys = { version = "0.17", default-features = false, features = ["sapling", "std"] }
+zcash_protocol = { version = "0.11", default-features = false, features = ["std"] }

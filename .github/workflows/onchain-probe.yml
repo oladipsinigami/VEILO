@@ -26,6 +26,13 @@ jobs:
       - name: start zcashd and mine a transaction with the envelope
         run: bash ops/onchain-probe.sh
 
+      # The point of the probe is not that zcashd accepted the memo. It is that
+      # the auditor can read it back from the raw transaction with nothing but
+      # the published viewing key. Run that against the bytes just produced,
+      # before the artefact is downloaded by hand.
+      - name: the auditor reads the mined transaction
+        run: cargo test -p veilo-core --features sapling --test chain_probe -- --nocapture
+
       - name: keep the raw transaction
         if: always()
         uses: actions/upload-artifact@v4

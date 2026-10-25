@@ -1,0 +1,12 @@
+{
+  "network": "regtest",
+  "zcashd": "6.20.0",
+  "nuparams": ["5ba81b19:1", "76b809bb:2", "2bb40e60:3", "f5b9230b:4", "e9ff75a6:5"],
+  "txid": "1d67ee3913db66f35cedae7ecd4c1e5071d35f7a3bd359ecfcda809feaf8e85a",
+  "block_height": 111,
+  "block_hash": "0e9647be4e5a935cc08b983505cdb80e939773ebad133f2c29cfca0c00054f1a",
+  "escrow_address": "zregtestsapling1843w0lw4unqmj7t2cc40r9mga3jhvcrw6ehymdlxjd7xjddsfsfk57zngv457z30yhywk967mm2",
+  "escrow_extfvk": "zxviewregtestsapling1qsygrxe4qqqqpqyzdwvs3990468v8zrm2qhdxk0cfl880m74kyv2h2wghlrqdlm08aj3yzr5j3t76k4r89jpm9wqehwjy3jkktjtytw8lgszdcprj2v5xan7qnuyrjxsdsx49v78h005gzcsuqexdtjunfvzd8wxsw6yhkzmm03vqu534x3tng503vh2d6wlc0eka0nqlqg2v6g48fd4fsgey6prncn9jv9v85chd8y29ckcmkhmnl0qy4rtq20qlr8w8urmdlh09uqr3cqen",
+  "memo_hex_len": 1024,
+  "memo_matches": true
+}
