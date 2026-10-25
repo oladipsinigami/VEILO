@@ -102,8 +102,18 @@ wait_op() {
 
 op_id() { py "d if isinstance(d, str) else (d.get('opid') or d.get('operationid'))"; }
 
+# z_shieldcoinbase wants a BARE `*`. Passing `'"*"'` (as an earlier version did)
+# sends the quote characters along, because this parameter is not JSON-converted
+# by zcash-cli, and the node then rejects it as an invalid address.
 say "shielding coinbase into the escrow address"
-SHIELD=$(cli z_shieldcoinbase '"*"' "$ADDR")
+CB=$(cli listunspent 0 9999999 | py "sum(1 for u in d if u.get('generated'))")
+echo "mature coinbase utxos: $CB"
+if [ "${CB:-0}" -lt 1 ]; then
+  echo "::error::no mature coinbase utxos to shield"
+  exit 1
+fi
+
+SHIELD=$(cli z_shieldcoinbase '*' "$ADDR")
 OPID=$(printf '%s' "$SHIELD" | op_id)
 echo "operation: $OPID"
 wait_op "$OPID"
