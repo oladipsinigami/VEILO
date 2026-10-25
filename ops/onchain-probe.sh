@@ -21,12 +21,25 @@
 #   Overwinter 5ba81b19, Sapling 76b809bb
 # Only those two: keeping Blossom and later off means zcashd builds a v4 Sapling
 # transaction, which is the exact shape the browser auditor already reads.
+#
+# Why z_shieldcoinbase carries the envelope rather than a follow-up z_sendmany:
+#   * it consumes whole coinbase UTXOs, so there is no transparent change and no
+#     privacy-policy refusal ("could not send to the Sapling pool without
+#     spending non-Sapling funds");
+#   * it needs no spendable-note wait -- a note minted in the tip block can be
+#     invisible to z_getbalance for a block or two;
+#   * since 6.20 it takes a memo directly (parameter 5).
+# The note it produces is an ordinary Sapling output, which is all the auditor
+# reads. A bid-shaped send (z_sendmany, shielded in and out) is the next step
+# once funding is known to work; this probe is about the envelope surviving.
 set -euo pipefail
 
 CONTAINER=veilo-zcashd
 RPC_USER=u
 RPC_PASS=p
 OUT_DIR=demo/chain-probe
+FEE=0.001      # well above the ZIP 317 fee for 10 inputs / 2 outputs (0.0006)
+UTXO_LIMIT=10
 
 cli() { docker exec "$CONTAINER" zcash-cli -regtest -rpcuser="$RPC_USER" -rpcpassword="$RPC_PASS" "$@"; }
 py() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
@@ -83,6 +96,13 @@ echo "escrow address: $ADDR"
 EXTFVK=$(cli z_exportviewingkey "$ADDR" | tr -d '"')
 echo "viewing key:    ${EXTFVK:0:24}... (${#EXTFVK} chars)"
 
+CB=$(cli listunspent 0 9999999 | py "sum(1 for u in d if u.get('generated'))")
+echo "mature coinbase utxos: $CB"
+if [ "${CB:-0}" -lt 1 ]; then
+  echo "::error::no mature coinbase utxos to shield"
+  exit 1
+fi
+
 wait_op() {
   local opid=$1 status i
   for i in $(seq 1 150); do
@@ -102,50 +122,6 @@ wait_op() {
 
 op_id() { py "d if isinstance(d, str) else (d.get('opid') or d.get('operationid'))"; }
 
-# z_shieldcoinbase wants a BARE `*`. Passing `'"*"'` (as an earlier version did)
-# sends the quote characters along, because this parameter is not JSON-converted
-# by zcash-cli, and the node then rejects it as an invalid address.
-say "shielding coinbase into the escrow address"
-CB=$(cli listunspent 0 9999999 | py "sum(1 for u in d if u.get('generated'))")
-echo "mature coinbase utxos: $CB"
-if [ "${CB:-0}" -lt 1 ]; then
-  echo "::error::no mature coinbase utxos to shield"
-  exit 1
-fi
-
-SHIELD=$(cli z_shieldcoinbase '*' "$ADDR")
-OPID=$(printf '%s' "$SHIELD" | op_id)
-echo "operation: $OPID"
-wait_op "$OPID"
-cli generate 1 >/dev/null
-
-# `z_getbalance` defaults to minconf 1, and it also drops notes the wallet cannot
-# currently spend (GetFilteredNotes with ignoreUnspendable). A note minted in the
-# tip block can sit in that state until the wallet has another block to fold in,
-# so give it a few blocks and print the note's own view instead of guessing.
-say "escrow balance"
-BAL=""
-for attempt in 1 2 3 4 5; do
-  BAL=$(cli z_getbalance "$ADDR" 0 | py "d")
-  echo "  attempt $attempt: balance(minconf 0) = $BAL ZEC"
-  if [ "$(py "float(d) > 0" <<<"$BAL")" = True ]; then break; fi
-  cli generate 1 >/dev/null
-  sleep 3
-done
-cli z_gettotalbalance | python3 -m json.tool | sed -n '1,12p'
-cli z_listunspent 0 9999999 \
-  | python3 -c "
-import json,sys
-d = json.load(sys.stdin)
-print(json.dumps([{k: u.get(k) for k in ('txid','address','amount','confirmations','spendable','change')}
-                  for u in d if u.get('address') == '$ADDR'], indent=2))
-" | sed -n '1,40p'
-if [ "$(py "float(d) > 0" <<<"$BAL")" != True ]; then
-  echo "::error::the escrow note never became spendable"
-  exit 1
-fi
-echo "escrow balance: $BAL ZEC"
-
 # ---------------------------------------------------------------- the envelope
 # 512 bytes, each byte = its own index mod 256. Any truncation, zero-padding or
 # re-encoding shows up immediately as a mismatch, and it is trivially checkable
@@ -154,11 +130,22 @@ say "building a 512-byte memo"
 MEMO=$(python3 -c "print(''.join('%02x' % (i % 256) for i in range(512)))")
 echo "memo is ${#MEMO} hex chars = $(( ${#MEMO} / 2 )) bytes"
 
-say "sending 0.0001 ZEC to itself with that memo"
-SEND=$(cli z_sendmany "$ADDR" "[{\"address\":\"$ADDR\",\"amount\":0.0001,\"memo\":\"$MEMO\"}]")
-OPID=$(printf '%s' "$SEND" | op_id)
+# z_shieldcoinbase wants a BARE `*`. Passing `'"*"'` (as an earlier version did)
+# sends the quote characters along, because this parameter is not JSON-converted
+# by zcash-cli, and the node then rejects it as an invalid address.
+say "shielding coinbase into the escrow note, with the envelope attached"
+SHIELD=$(cli z_shieldcoinbase '*' "$ADDR" "$FEE" "$UTXO_LIMIT" "$MEMO")
+OPID=$(printf '%s' "$SHIELD" | op_id)
 echo "operation: $OPID"
 wait_op "$OPID"
+
+TXID=$(cli z_getoperationstatus "[\"$OPID\"]" | py "d[0].get('result', {}).get('txid', '')")
+if [ -z "$TXID" ]; then
+  echo "::error::the operation succeeded but reported no txid"
+  cli z_getoperationstatus "[\"$OPID\"]" | python3 -m json.tool
+  exit 1
+fi
+echo "txid: $TXID"
 
 say "mining the transaction"
 cli generate 1 >/dev/null
@@ -166,15 +153,6 @@ TIP=$(cli getblockcount | py "d")
 echo "chain tip: $TIP"
 
 # ------------------------------------------------------------- what went in
-TXID=$(cli z_listreceivedbyaddress "$ADDR" 0 \
-  | py "([x['txid'] for x in d if (x.get('memo') or '').lower().startswith('000102')] or ['NOT-FOUND'])[0]")
-if [ "$TXID" = "NOT-FOUND" ]; then
-  echo "::error::the memo never showed up in the wallet's received notes"
-  cli z_listreceivedbyaddress "$ADDR" 0 | python3 -m json.tool || true
-  exit 1
-fi
-echo "txid with our memo: $TXID"
-
 say "zcashd's own view of the transaction (proves the memo is intact)"
 cli z_viewtransaction "$TXID" | python3 -m json.tool | sed -n '1,60p'
 
@@ -204,6 +182,7 @@ cat > "$OUT_DIR/probe.json" <<JSON
 {
   "network": "regtest",
   "zcashd": "6.20.0",
+  "nuparams": ["5ba81b19:1", "76b809bb:2"],
   "txid": "$TXID",
   "block_height": $BH,
   "block_hash": "$BB",
