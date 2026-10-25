@@ -16,11 +16,16 @@
 # it must mine. zcashd is EOL for mainnet, but regtest needs neither a peer nor
 # a network upgrade schedule beyond what we pass explicitly.
 #
-# Regtest ships every network upgrade INACTIVE, so Sapling has to be switched on
-# with -nuparams. Branch IDs are from src/consensus/upgrades.cpp at v6.20.0:
-#   Overwinter 5ba81b19, Sapling 76b809bb
-# Only those two: keeping Blossom and later off means zcashd builds a v4 Sapling
-# transaction, which is the exact shape the browser auditor already reads.
+# Regtest ships every network upgrade INACTIVE, so they have to be switched on
+# with -nuparams, in order. Branch IDs are from src/consensus/upgrades.cpp at
+# v6.20.0:
+#   Overwinter 5ba81b19, Sapling 76b809bb, Blossom 2bb40e60,
+#   Heartwood  f5b9230b, Canopy  e9ff75a6
+# It stops at Canopy on purpose. Canopy is the last pre-NU5 upgrade, so the
+# transaction is still v4 -- the shape the browser auditor reads -- while ZIP 212
+# note encryption is in force. That matters: the auditor enforces ZIP 212
+# (lead byte 0x02), and a chain that never reached Canopy would produce 0x01
+# notes that it must, correctly, refuse to decrypt.
 #
 # Why z_shieldcoinbase carries the envelope rather than a follow-up z_sendmany:
 #   * it consumes whole coinbase UTXOs, so there is no transparent change and no
@@ -46,12 +51,15 @@ py() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 
 say() { echo; echo "== $* =="; }
 
-say "starting zcashd 6.20.0 (regtest, Overwinter@1, Sapling@2)"
+say "starting zcashd 6.20.0 (regtest, Overwinter@1 .. Canopy@5)"
 docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 docker run -d --name "$CONTAINER" electriccoinco/zcashd:6.20.0 \
   -regtest=1 \
   -nuparams=5ba81b19:1 \
   -nuparams=76b809bb:2 \
+  -nuparams=2bb40e60:3 \
+  -nuparams=f5b9230b:4 \
+  -nuparams=e9ff75a6:5 \
   -rpcuser="$RPC_USER" \
   -rpcpassword="$RPC_PASS" \
   -rpcbind=127.0.0.1 \
@@ -182,7 +190,7 @@ cat > "$OUT_DIR/probe.json" <<JSON
 {
   "network": "regtest",
   "zcashd": "6.20.0",
-  "nuparams": ["5ba81b19:1", "76b809bb:2"],
+  "nuparams": ["5ba81b19:1", "76b809bb:2", "2bb40e60:3", "f5b9230b:4", "e9ff75a6:5"],
   "txid": "$TXID",
   "block_height": $BH,
   "block_hash": "$BB",
