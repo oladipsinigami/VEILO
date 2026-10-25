@@ -26,7 +26,7 @@ use veilo_core::memo::{
 
 /// Fixed so a regenerated probe produces a recognisable, comparable envelope.
 const AUCTION_ID: [u8; 16] = *b"veilo-chain-111!";
-const BID_ZAT: u64 = 60_000_000_000; // 60 ZEC
+const BID_ZAT: u64 = 6_000_000_000; // 60 ZEC, comfortably under the shielded coinbase
 const NONCE: [u8; 16] = [0x11; 16];
 const EPK_BID: [u8; 32] = [0x22; 32];
 const SK_REFUND: [u8; 32] = [0x33; 32];
