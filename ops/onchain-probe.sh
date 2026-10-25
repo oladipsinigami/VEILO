@@ -47,12 +47,19 @@ docker run -d --name "$CONTAINER" electriccoinco/zcashd:6.20.0 \
   -allowdeprecated=z_getnewaddress \
   -allowdeprecated=z_listaddresses \
   -allowdeprecated=z_getbalance \
-  -allowdeprecated=z_gettotalbalance >/dev/null
+  -allowdeprecated=z_gettotalbalance \
+  -i-am-aware-zcashd-will-be-replaced-by-zebrad-and-zallet-in-2025=1 >/dev/null
 
 say "waiting for RPC (first start downloads the Sapling parameters)"
 up=0
 for i in $(seq 1 60); do
   if cli getblockchaininfo >/dev/null 2>&1; then up=1; echo "rpc up after ~$((i * 5))s"; break; fi
+  # Do not sit in this loop for five minutes if the node has already given up.
+  if [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null)" != "true" ]; then
+    echo "::error::zcashd exited during startup"
+    docker logs --tail 60 "$CONTAINER" || true
+    exit 1
+  fi
   sleep 5
 done
 if [ "$up" != 1 ]; then
