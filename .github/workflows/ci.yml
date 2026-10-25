@@ -147,6 +147,13 @@ jobs:
       - name: test the demo fixture end to end
         run: cargo test -p veilo-core --features sapling --test demo_audit --verbose
 
+      # Everything above starts from ciphertexts this repo produced. This one
+      # starts from a transaction zcashd 6.20.0 mined on regtest and committed
+      # under demo/chain-probe/, and checks that the auditor -- using only the
+      # published viewing key -- recovers the 512-byte envelope from raw bytes.
+      - name: audit a transaction a real node mined
+        run: cargo test -p veilo-core --features sapling --test chain_probe -- --nocapture
+
       - name: test the wasm auditor exports
         run: cargo test -p veilo-wasm --features sapling --verbose
 

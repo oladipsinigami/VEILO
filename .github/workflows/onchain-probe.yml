@@ -1,0 +1,52 @@
+name: onchain-probe
+
+# Regenerates the mined-transaction artefact in demo/chain-probe/ and then
+# checks that the auditor can read it.
+#
+# The artefact is committed, so this does not run on push. It exists so the
+# claim "a real node mined this envelope" can be re-established from scratch,
+# on demand, without anyone needing a local zcashd: one click produces a new
+# transaction, mines it, exports the raw bytes, and proves the auditor recovers
+# the memo from them.
+#
+# Run it with `gh workflow run onchain-probe.yml`. Download the `onchain-probe`
+# artifact afterwards and copy tx.hex + probe.json into demo/chain-probe/.
+# If you do, the committed txid in README.md changes too.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: can a 512-byte memo survive a real chain?
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: start zcashd and mine a transaction with the envelope
+        run: bash ops/onchain-probe.sh
+
+      # The point of the probe is not that zcashd accepted the memo. It is that
+      # the auditor can read it back from the raw transaction with nothing but
+      # the published viewing key. Run that against the bytes just produced,
+      # before the artefact is downloaded by hand.
+      - name: the auditor reads the mined transaction
+        run: cargo test -p veilo-core --features sapling --test chain_probe -- --nocapture
+
+      - name: keep the raw transaction
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: onchain-probe
+          path: demo/chain-probe/
+          if-no-files-found: warn
+
+      - name: zcashd log
+        if: failure()
+        run: docker logs --tail 120 veilo-zcashd || true

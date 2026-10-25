@@ -126,6 +126,7 @@ Everything below is implemented and covered by tests that run in CI.
 | Batched settlement **plan** (accounting, invariants) | done, unit-tested |
 | ZIP-321 URI builder/parser | done |
 | **Sapling trial-decryption of a real `encCiphertext`** | done |
+| **The auditor reads a node-mined transaction** | done, regtest artefact in `demo/chain-probe/` |
 | **Block-range sweep keeping only escrow bids** | done |
 | **WASM browser auditor** | done, builds for `wasm32-unknown-unknown` |
 | Cross-implementation vectors (Rust ↔ TypeScript, byte-identical) | done |
@@ -138,9 +139,10 @@ Test totals, all run in CI:
 | `veilo-core` cross-implementation replay (Rust ↔ TypeScript vectors) | 6 |
 | `veilo-core` audit path (`tests/sapling_audit.rs`) | 6 |
 | `veilo-core` demo fixture, end to end (`tests/demo_audit.rs`) | 2 |
+| `veilo-core` node-mined transaction (`tests/chain_probe.rs`) | 1 |
 | `veilo-wasm` exports | 10 |
 | TypeScript (`test/*.test.js`) | 56 |
-| **total** | **100** |
+| **total** | **107** |
 
 CI also runs `cargo clippy -- -D warnings`, `cargo fmt --check`, and the
 `wasm32-unknown-unknown` build.
@@ -154,22 +156,37 @@ mocked. The auditor also rejects 52-byte *compact* ciphertexts outright rather
 than treating them as "no bid" — a failure that would be indistinguishable from a
 real result.
 
+Beyond the fixture, one envelope was carried by an actual mined transaction.
+`demo/chain-probe/tx.hex` is the raw bytes of a v4 Sapling transaction that
+`zcashd 6.20.0` built and mined into regtest block 111, with the 512-byte
+envelope as its memo. `tests/chain_probe.rs` parses that transaction from
+scratch, checks its hash, decodes the published `zxview…` key, and trial-decrypts
+the outputs to recover the memo. It is the first input to the auditor in this
+repository that our own code did not produce.
+
 ---
 
 ## What is **not** built yet
 
 Stated plainly, because a judge should find these by reading.
 
-1. **We have not broadcast a transaction.** The ciphertexts in the demo are real
-   but were **not mined on a chain**. They prove the cryptography and the auction
-   arithmetic, not transaction broadcast.
+1. **No transaction on a public network.** The envelope has been *mined*, but only
+   on a local regtest chain. `demo/chain-probe/tx.hex` is a v4 Sapling
+   transaction that `zcashd 6.20.0` mined into block 111
+   (`1d67ee39…e85a`), carrying the 512-byte Veilo envelope as its memo.
+   `crates/veilo-core/tests/chain_probe.rs` parses those raw bytes and recovers
+   the memo using nothing but the published viewing key — no wallet database, no
+   cooperation from the node. That answers "does a real node accept, encrypt and
+   mine the envelope": yes, through ZIP 212 note encryption, byte-for-byte. It
+   does **not** answer "does this work on a public network", because regtest has
+   no peers, no fee market, and no NU6.3.
 
-   *Why:* `zcashd` is end-of-life — every 6.20.0 binary shuts down permanently at
-   block 3417100 (18 Jul 2026) and cannot support NU6.3. Its replacement,
-   `Zallet` v0.1.0-beta.3, pins `zebra-state 12.0.1` while current `zebrad`
-   writes format **v15**; even the nearest release (v6.3.0, Aug 10) is v13.
-   Zallet opens zebrad's RocksDB read-only, so the formats must match exactly.
-   This is an ecosystem gap, not something we can configure around. See
+   *Why not mainnet:* `zcashd` is end-of-life — every 6.20.0 binary shuts down
+   permanently at block 3417100 (18 Jul 2026) and cannot support NU6.3. Its
+   replacement, `Zallet` v0.1.0-beta.3, pins `zebra-state 12.0.1` while current
+   `zebrad` writes format **v15**; even the nearest release (v6.3.0, Aug 10) is
+   v13. Zallet opens zebrad's RocksDB read-only, so the formats must match
+   exactly. This is an ecosystem gap, not something we can configure around. See
    `ops/README.md`.
 
 2. **Settlement is a plan, not a broadcast.** The accounting is implemented and
@@ -177,10 +194,11 @@ Stated plainly, because a judge should find these by reading.
    seller — but no `zcash_client_backend` transaction is constructed or sent.
    There is no `settlement-engine` crate yet.
 
-3. **No chain data fetcher.** The demo reads a fixture. Reading a real block
-   range from `zebrad`/`zaino` is required for production and is not written.
-   Note this must bypass `lightwalletd`: it serves 52-byte compact outputs,
-   which contain no memo at all.
+3. **No chain data fetcher.** `tests/chain_probe.rs` parses one transaction from
+   a committed file, which is enough to prove the byte format. There is no code
+   that walks a block range from a live node and feeds it to the auditor. Note
+   this must bypass `lightwalletd`: it serves 52-byte compact outputs, which
+   contain no memo at all.
 
 4. **No bidder-facing UI.** There is the audit page. There is no bid composer, no
    reveal publisher, no settlement inspector.
@@ -229,6 +247,7 @@ veilo/
 │   ├── memo.ts  auction.ts  zip321.ts
 ├── demo/                      browser auditor + fixture (works today)
 │   ├── index.html  fixture.json  pkg/
+│   └── chain-probe/           raw tx mined by zcashd + its viewing key
 ├── test/                      cross-implementation vectors
 └── ops/                       node tooling, CI scripts, known blockers
 ```
