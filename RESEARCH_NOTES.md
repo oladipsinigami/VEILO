@@ -310,6 +310,95 @@ available.
 
 ---
 
+## 16. Regtest activates nothing, and Canopy is the upgrade that decides whether the auditor can read the note
+
+`zcashd -regtest` starts with **every** network upgrade inactive. Without
+`-nuparams`, Sapling is not active and shielded RPCs fail. The upgrades must be
+switched on in order, keyed by branch ID from
+`src/consensus/upgrades.cpp`:
+
+| upgrade | branch ID | height |
+| :--- | :--- | ---: |
+| Overwinter | `5ba81b19` | 1 |
+| Sapling | `76b809bb` | 2 |
+| Blossom | `2bb40e60` | 3 |
+| Heartwood | `f5b9230b` | 4 |
+| Canopy | `e9ff75a6` | 5 |
+
+The first working probe stopped after Sapling, and produced a valid v4
+transaction that mined cleanly. The auditor still could not read it: the note
+plaintext led with `0x01`, because ZIP 212 note encryption only becomes
+mandatory at **Canopy**, and `trial_decrypt` enforces ZIP 212 (`0x02`). The
+auditor was right to refuse. Weakening it to accept pre-ZIP-212 notes would have
+made the test pass against a chain nobody runs.
+
+Enabling through Canopy keeps both properties: ZIP 212 is in force, and the
+transaction is still **v4**, because v5 only begins at NU5. So the mined artefact
+is the same shape the browser auditor already parses.
+
+**Lesson.** "Mined on a chain" is not one property. The upgrade epoch you choose
+decides which encryption rules the note follows, and a chain that is too old
+produces ciphertext the auditor must — correctly — reject.
+
+---
+
+## 17. From a fresh regtest wallet, `z_shieldcoinbase` was the only call that could carry the memo
+
+Two failures in a row made the shape of the problem clear.
+
+`z_sendmany` from the funded shielded note was refused:
+
+> Could not send to the Sapling shielded pool without spending non-Sapling
+> funds, which would reveal transaction amounts.
+
+The wallet pulls transparent change into the transaction even when both ends are
+shielded, and the default privacy policy will not allow the resulting amount
+disclosure.
+
+`z_shieldcoinbase` has none of that baggage: it consumes whole coinbase UTXOs,
+so there is no change, no privacy-policy refusal, and no spendable-note wait. It
+also takes a memo directly as parameter 5 (since 6.20), which is exactly the
+envelope field Veilo uses.
+
+Two details cost a run each:
+
+- **The from-address must be a bare `*`.** It is compared against the literal
+  string `"*"` (`isFromWildcard = fromaddress == "*"`), and this parameter is
+  *not* JSON-converted by `zcash-cli`. Passing `'"*"'` delivers the quote
+  characters and the node rejects it as an invalid address.
+- **6.20 refuses to start without**
+  `-i-am-aware-zcashd-will-be-replaced-by-zebrad-and-zallet-in-2025=1`.
+
+The deprecation surface turned out to be narrower than feared. From
+`src/deprecation.h`, the denied set is exactly `getnewaddress`,
+`getrawchangeaddress`, `z_getnewaddress`, `z_getbalance`, `z_listaddresses`,
+`legacy_privacy`, `wallettxvjoinsplit`. `z_shieldcoinbase`, `z_sendmany`,
+`z_exportviewingkey`, `z_viewtransaction` and `z_listreceivedbyaddress` need no
+flag.
+
+**Lesson.** The shortest working path was not "send a bid-shaped transaction".
+It was "attach the envelope to the transaction that already had to happen".
+
+---
+
+## 18. A note minted in the tip block is invisible to `z_getbalance`
+
+After shielding, the operation reported success and the transaction was in the
+next block — yet the escrow balance read `0.0 ZEC`.
+
+`getBalanceZaddr` calls `GetFilteredNotes(..., ignoreUnspendable=true)` and
+`z_getbalance` defaults to `minconf 1`. A note created in the tip block can be
+excluded by both filters at once. One more block made the same call return
+`99.9994 ZEC`, with no other change.
+
+`z_viewtransaction` and the node log showed the note existed the whole time.
+
+**Lesson.** A zero balance is not evidence that a note is missing. It can mean
+"not yet spendable by this wallet's own rules", which is a different failure and
+needs a different fix.
+
+---
+
 ## Open questions
 
 - **Zallet ↔ zebrad alignment.** Resolves itself when Zallet ships against a
@@ -318,5 +407,8 @@ available.
   disappears at the cost of running a second node.
 - **`zcash_address` / unified addresses.** We derive Sapling addresses offline but
   have not yet produced ZIP-316 unified addresses for the demo path.
-- **Real broadcast.** Requires a working wallet stack. Until then the authoring
-  path is untested on any network.
+- **Real broadcast.** Regtest now proves the authoring path end to end with
+  `zcashd`; a public network still needs a post-EOL wallet stack. A related
+  question is transaction shape: the committed artefact is v4, and a mainnet
+  deployment would produce v5, which keeps the same 512-byte memo but needs a
+  different parsing path.

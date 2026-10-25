@@ -22,10 +22,34 @@ Windows or macOS build. Codespaces gives us the Linux box the plan always assume
 | `bash ops/fund.sh` | Generates a miner address, writes it into the config, mines 110 blocks so coinbase matures |
 | `bash ops/up.sh` | Starts zebrad on regtest and waits for RPC |
 | `bash ops/zebrad.log` | Tail this if `up.sh` times out |
+| `bash ops/onchain-probe.sh` | Runs `zcashd` in Docker, mines a transaction carrying the 512-byte envelope, writes `demo/chain-probe/` |
 
 **Run `fund.sh` first.** It is the one that is genuinely fiddly: Zcash coinbase outputs
 mature after 100 blocks, so a fresh chain cannot spend anything until block 101. The
 script does that for you.
+
+## The zcashd probe (the only mined transaction)
+
+`ops/onchain-probe.sh` answers one question: will a real wallet put the Veilo
+envelope on a chain, intact, and hand back bytes an independent auditor can
+parse? It runs `zcashd 6.20.0` (published Docker image) on regtest:
+
+- activates Overwinter through **Canopy** with `-nuparams`, which keeps the
+  transaction **v4** *and* turns on ZIP 212 note encryption that the auditor
+  enforces;
+- mines 110 blocks, creates a Sapling escrow address, exports its `zxview…` key;
+- carries the envelope in the **`z_shieldcoinbase` transaction itself**
+  (parameter 5), so there is no transparent change and no privacy refusal;
+- asserts the memo comes back byte-for-byte from `z_viewtransaction`;
+- writes `tx.hex` and `probe.json` into `demo/chain-probe/`.
+
+It needs Docker, not a Codespace. GitHub's `onchain-probe` workflow is
+`workflow_dispatch` only: run it to regenerate the artefact, download the
+artifact, and commit the two files. The committed artefact is what
+`cargo test --test chain_probe` reads in the normal `rust` job, so CI does not
+need Docker to keep the claim honest.
+
+If you regenerate, the txid in `README.md` changes with it.
 
 ## Why regtest, and not public Testnet
 

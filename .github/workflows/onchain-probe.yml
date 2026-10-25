@@ -1,15 +1,19 @@
 name: onchain-probe
 
-# Throwaway probe. Its only job is to answer one question: will a real zcashd
-# wallet carry a 512-byte Veilo envelope onto a chain, intact, and hand back a
-# raw transaction an independent auditor can parse?
+# Regenerates the mined-transaction artefact in demo/chain-probe/ and then
+# checks that the auditor can read it.
 #
-# Lives on a branch, not on main. If it works, the pieces move into a proper
-# harness and this file is deleted.
+# The artefact is committed, so this does not run on push. It exists so the
+# claim "a real node mined this envelope" can be re-established from scratch,
+# on demand, without anyone needing a local zcashd: one click produces a new
+# transaction, mines it, exports the raw bytes, and proves the auditor recovers
+# the memo from them.
+#
+# Run it with `gh workflow run onchain-probe.yml`. Download the `onchain-probe`
+# artifact afterwards and copy tx.hex + probe.json into demo/chain-probe/.
+# If you do, the committed txid in README.md changes too.
 
 on:
-  push:
-    branches: [probe/onchain]
   workflow_dispatch:
 
 permissions:
@@ -22,6 +26,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
 
       - name: start zcashd and mine a transaction with the envelope
         run: bash ops/onchain-probe.sh
