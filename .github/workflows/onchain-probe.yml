@@ -1,0 +1,39 @@
+name: onchain-probe
+
+# Throwaway probe. Its only job is to answer one question: will a real zcashd
+# wallet carry a 512-byte Veilo envelope onto a chain, intact, and hand back a
+# raw transaction an independent auditor can parse?
+#
+# Lives on a branch, not on main. If it works, the pieces move into a proper
+# harness and this file is deleted.
+
+on:
+  push:
+    branches: [probe/onchain]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: can a 512-byte memo survive a real chain?
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: start zcashd and mine a transaction with the envelope
+        run: bash ops/onchain-probe.sh
+
+      - name: keep the raw transaction
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: onchain-probe
+          path: demo/chain-probe/
+          if-no-files-found: warn
+
+      - name: zcashd log
+        if: failure()
+        run: docker logs --tail 120 veilo-zcashd || true
