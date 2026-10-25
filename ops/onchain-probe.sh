@@ -118,9 +118,33 @@ OPID=$(printf '%s' "$SHIELD" | op_id)
 echo "operation: $OPID"
 wait_op "$OPID"
 cli generate 1 >/dev/null
-BAL=$(cli z_getbalance "$ADDR" | py "d")
+
+# `z_getbalance` defaults to minconf 1, and it also drops notes the wallet cannot
+# currently spend (GetFilteredNotes with ignoreUnspendable). A note minted in the
+# tip block can sit in that state until the wallet has another block to fold in,
+# so give it a few blocks and print the note's own view instead of guessing.
+say "escrow balance"
+BAL=""
+for attempt in 1 2 3 4 5; do
+  BAL=$(cli z_getbalance "$ADDR" 0 | py "d")
+  echo "  attempt $attempt: balance(minconf 0) = $BAL ZEC"
+  if [ "$(py "float(d) > 0" <<<"$BAL")" = True ]; then break; fi
+  cli generate 1 >/dev/null
+  sleep 3
+done
+cli z_gettotalbalance | python3 -m json.tool | sed -n '1,12p'
+cli z_listunspent 0 9999999 \
+  | python3 -c "
+import json,sys
+d = json.load(sys.stdin)
+print(json.dumps([{k: u.get(k) for k in ('txid','address','amount','confirmations','spendable','change')}
+                  for u in d if u.get('address') == '$ADDR'], indent=2))
+" | sed -n '1,40p'
+if [ "$(py "float(d) > 0" <<<"$BAL")" != True ]; then
+  echo "::error::the escrow note never became spendable"
+  exit 1
+fi
 echo "escrow balance: $BAL ZEC"
-if [ "$(py "float(d) > 0" <<<"$BAL")" != True ]; then echo "::error::no funds"; exit 1; fi
 
 # ---------------------------------------------------------------- the envelope
 # 512 bytes, each byte = its own index mod 256. Any truncation, zero-padding or
