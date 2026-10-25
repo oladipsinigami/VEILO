@@ -22,7 +22,6 @@
 
 #![cfg(feature = "sapling")]
 
-use sapling_crypto::zip32::Scope;
 use veilo_core::audit::{trial_decrypt, SaplingOutput, ENC_CIPHERTEXT_SIZE};
 use zcash_keys::encoding::decode_extfvk_with_network;
 use zcash_primitives::transaction::Transaction;
@@ -107,7 +106,15 @@ fn the_auditor_reads_a_mined_transaction() {
         "Regtest",
         "the artefact should be a regtest viewing key"
     );
-    let ivk = extfvk.to_ivk(Scope::External).to_repr();
+    // An `IncomingViewingKey` encodes as `dk(32) || ivk(32)`, and the auditor
+    // consumes the raw 32-byte ivk, so take the second half.
+    let ivk_bytes = extfvk
+        .to_diversifiable_full_viewing_key()
+        .to_external_ivk()
+        .to_bytes();
+    let ivk: [u8; 32] = ivk_bytes[32..]
+        .try_into()
+        .expect("an incoming viewing key encoding is 64 bytes");
 
     // -- 3. trial decryption recovers the envelope --------------------------
     let bundle = tx
