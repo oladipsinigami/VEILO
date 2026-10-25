@@ -175,7 +175,7 @@ Stated plainly, because a judge should find these by reading.
 1. **No transaction on a public network.** The envelope has been *mined*, but only
    on a local regtest chain. `demo/chain-probe/tx.hex` is a v4 Sapling
    transaction that `zcashd 6.20.0` mined into block 111
-   (`1d67ee39…e85a`), carrying the 512-byte Veilo envelope as its memo.
+   (`6ff52918…e325`), carrying a packed 512-byte Veilo bid as its memo.
    `crates/veilo-core/tests/chain_probe.rs` parses those raw bytes and recovers
    the memo using nothing but the published viewing key — no wallet database, no
    cooperation from the node. That answers "does a real node accept, encrypt and
