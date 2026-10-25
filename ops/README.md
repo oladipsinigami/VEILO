@@ -38,10 +38,17 @@ parse? It runs `zcashd 6.20.0` (published Docker image) on regtest:
   transaction **v4** *and* turns on ZIP 212 note encryption that the auditor
   enforces;
 - mines 110 blocks, creates a Sapling escrow address, exports its `zxview…` key;
-- carries the envelope in the **`z_shieldcoinbase` transaction itself**
+- builds a packed bid with `crates/veilo-core/examples/chain_memo.rs` (auction
+  id, 60 ZEC commitment, sealed refund address for a second address it creates);
+- carries that envelope in the **`z_shieldcoinbase` transaction itself**
   (parameter 5), so there is no transparent change and no privacy refusal;
 - asserts the memo comes back byte-for-byte from `z_viewtransaction`;
-- writes `tx.hex` and `probe.json` into `demo/chain-probe/`.
+- writes `tx.hex`, `probe.json` and `memo.txt` into `demo/chain-probe/`.
+
+`memo.txt` publishes the envelope's inputs, including a **test** refund secret,
+so `tests/chain_probe.rs` can recompute the bid commitment from the reveal and
+open the refund seal. A real auction would never publish that key; here it is the
+only way to check the last step without an auctioneer.
 
 It needs Docker, not a Codespace. GitHub's `onchain-probe` workflow is
 `workflow_dispatch` only: run it to regenerate the artefact, download the

@@ -29,6 +29,11 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # The probe runs the envelope generator with `cargo run`, then the test
+      # with `cargo test`; the cache keeps a regeneration close to the cost of
+      # the Docker pull rather than two full builds.
+      - uses: Swatinem/rust-cache@v2
+
       - name: start zcashd and mine a transaction with the envelope
         run: bash ops/onchain-probe.sh
 

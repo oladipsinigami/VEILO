@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# Probe: can a real zcashd wallet put a 512-byte Veilo envelope on a chain?
+# Probe: can a real zcashd wallet put a packed Veilo bid on a chain?
 #
 # This is the whole feasibility question for the on-chain demo, in one run. It
 # does not try to be elegant. If it works, the pieces get folded into a proper
 # harness; if it does not, it cost one CI run instead of a day.
 #
 # What it proves, in order:
-#   1. zcashd accepts a 512-byte memo on a Sapling send (the limit is exactly
-#      512 bytes, zero-padded, which is why the Veilo envelope fits at all).
+#   1. zcashd accepts the 512-byte envelope on a Sapling send (the memo limit is
+#      exactly 512 bytes, which is why the Veilo envelope fits at all).
 #   2. The transaction is mined into a block.
 #   3. The memo comes back byte-for-byte, so nothing truncates or re-encodes it.
-#   4. The raw transaction can be exported for an independent auditor to parse.
+#   4. The raw transaction can be exported for an independent auditor to parse,
+#      and it is a real envelope: the commitment and the sealed refund address
+#      are checked by tests/chain_probe.rs after trial decryption.
 #
 # Why zcashd and not Zallet: this needs a node AND a wallet in one process, and
 # it must mine. zcashd is EOL for mainnet, but regtest needs neither a peer nor
@@ -37,6 +39,11 @@
 # The note it produces is an ordinary Sapling output, which is all the auditor
 # reads. A bid-shaped send (z_sendmany, shielded in and out) is the next step
 # once funding is known to work; this probe is about the envelope surviving.
+#
+# The envelope itself comes from examples/chain_memo.rs, not from a byte pattern
+# (an earlier version used `i mod 256`, which proved transport but said nothing
+# about whether the bytes were a valid bid). This script only needs `cargo` to
+# run that example; the node still does all the mining.
 set -euo pipefail
 
 CONTAINER=veilo-zcashd
@@ -104,6 +111,12 @@ echo "escrow address: $ADDR"
 EXTFVK=$(cli z_exportviewingkey "$ADDR" | tr -d '"')
 echo "viewing key:    ${EXTFVK:0:24}... (${#EXTFVK} chars)"
 
+# The bidder's refund address, sealed into the envelope. Generated here so the
+# envelope refers to a real address on this chain rather than a placeholder.
+REFUND=$(cli z_getnewaddress sapling | tr -d '"')
+if [ -z "$REFUND" ]; then echo "::error::no refund address"; exit 1; fi
+echo "refund address: $REFUND"
+
 CB=$(cli listunspent 0 9999999 | py "sum(1 for u in d if u.get('generated'))")
 echo "mature coinbase utxos: $CB"
 if [ "${CB:-0}" -lt 1 ]; then
@@ -131,12 +144,31 @@ wait_op() {
 op_id() { py "d if isinstance(d, str) else (d.get('opid') or d.get('operationid'))"; }
 
 # ---------------------------------------------------------------- the envelope
-# 512 bytes, each byte = its own index mod 256. Any truncation, zero-padding or
-# re-encoding shows up immediately as a mismatch, and it is trivially checkable
-# by eye: the hex is 000102...ff0001...
-say "building a 512-byte memo"
-MEMO=$(python3 -c "print(''.join('%02x' % (i % 256) for i in range(512)))")
+# A packed bid, built by the crate's own encoder: auction id, bid commitment,
+# and an X25519-sealed refund address. Deterministic except for the refund
+# address, so the mined bytes are reproducible and the test can hold the
+# recovered envelope to the same values.
+say "building the 512-byte envelope (a packed bid, not a filler pattern)"
+mkdir -p "$OUT_DIR"
+MEMO_SPEC=$(cargo run -q -p veilo-core --example chain_memo -- "$REFUND")
+field() { printf '%s\n' "$MEMO_SPEC" | sed -n "s/^$1=//p"; }
+MEMO=$(field memo)
+if [ "${#MEMO}" != 1024 ]; then
+  echo "::error::chain_memo emitted ${#MEMO} hex chars, expected 1024"
+  exit 1
+fi
+printf '%s\n' "$MEMO_SPEC" > "$OUT_DIR/memo.txt"
 echo "memo is ${#MEMO} hex chars = $(( ${#MEMO} / 2 )) bytes"
+REVEAL=$(field reveal)
+# The reveal stores the bid little-endian after the 16-byte auction id.
+BID_ZAT=$(python3 -c "
+import sys
+h = sys.argv[1]
+print(int.from_bytes(bytes.fromhex(h[32:48]), 'little'))
+" "$REVEAL")
+echo "auction id:     $(printf '%s' "$REVEAL" | cut -c1-32)"
+echo "bid:            $BID_ZAT zat"
+echo "commitment:     $(field memo | cut -c171-234)"
 
 # z_shieldcoinbase wants a BARE `*`. Passing `'"*"'` (as an earlier version did)
 # sends the quote characters along, because this parameter is not JSON-converted
@@ -166,6 +198,14 @@ cli z_viewtransaction "$TXID" | python3 -m json.tool | sed -n '1,60p'
 
 RETURNED=$(cli z_viewtransaction "$TXID" \
   | py "max((o.get('memo') or '' for o in d['outputs']), key=len)")
+# The memo field is a fixed 512 bytes, but z_viewtransaction trims trailing NULs
+# and this envelope is zero-padded after byte 349. Pad back to the field width
+# before comparing, so a legitimate zero tail is not read as a mismatch.
+RETURNED=$(python3 -c "
+import sys
+s = sys.argv[1].strip().lower()
+print((s + '00' * 512)[:1024])
+" "$RETURNED")
 echo
 echo "memo sent:     ${MEMO:0:32}... (${#MEMO} chars)"
 echo "memo returned: ${RETURNED:0:32}... (${#RETURNED} chars)"
@@ -178,7 +218,6 @@ fi
 
 # ------------------------------------------------------- the artefact itself
 say "exporting the raw transaction"
-mkdir -p "$OUT_DIR"
 RAW=$(cli getrawtransaction "$TXID" 0 | tr -d '"')
 printf '%s' "$RAW" > "$OUT_DIR/tx.hex"
 BB=$(cli getrawtransaction "$TXID" 1 | py "d['blockhash']")
@@ -196,6 +235,9 @@ cat > "$OUT_DIR/probe.json" <<JSON
   "block_hash": "$BB",
   "escrow_address": "$ADDR",
   "escrow_extfvk": "$EXTFVK",
+  "refund_address": "$REFUND",
+  "memo_kind": "packed-veilo-bid",
+  "memo_generator": "crates/veilo-core/examples/chain_memo.rs",
   "memo_hex_len": ${#MEMO},
   "memo_matches": true
 }
@@ -205,5 +247,6 @@ say "done"
 echo "artefacts:"
 ls -la "$OUT_DIR"
 echo
-echo "next: parse tx.hex with zcash_primitives, extract the Sapling output, and"
-echo "trial-decrypt it with the ivk derived from escrow_extfvk."
+echo "next: parse tx.hex with zcash_primitives, trial-decrypt the Sapling output"
+echo "with the ivk derived from escrow_extfvk, then unpack memo.txt's envelope,"
+echo "recompute its bid commitment from the reveal, and open the refund seal."

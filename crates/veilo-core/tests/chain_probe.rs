@@ -4,7 +4,7 @@
 //! produced. That proves the crypto is self-consistent, not that it matches what
 //! Zcash actually puts on a chain. This one closes that gap: `demo/chain-probe/`
 //! holds a raw transaction exported by `zcashd 6.20.0` on regtest, mined in a
-//! block, carrying a 512-byte Veilo envelope as its memo.
+//! block, carrying a packed Veilo bid in its 512-byte memo.
 //!
 //! What is being checked, in order:
 //!
@@ -14,15 +14,21 @@
 //!      string), decodes to an incoming viewing key.
 //!   3. Trial decryption of the transaction's Sapling outputs recovers the memo
 //!      byte-for-byte -- no cooperation from `zcashd`, no wallet database.
+//!   4. Those bytes are a *valid* envelope, not filler: they unpack, repack to
+//!      themselves, the bid commitment recomputes from the published reveal, and
+//!      the refund address opens with its key.
 //!
-//! The memo used by the probe is deliberately self-describing: byte `i` is
-//! `i mod 256`, so the hex reads `000102...ff0001...`. A truncation, a
-//! zero-padding bug, or an off-by-one all show up as a mismatch rather than as
-//! plausible-looking garbage.
+//! Step 4 is the difference between "512 bytes survived" and "a bid survived".
+//! The probe builds the memo with the crate's own encoder
+//! (`examples/chain_memo.rs`) and commits the values it used in `memo.txt`, which
+//! is what makes the checks below exact rather than approximate.
 
 #![cfg(feature = "sapling")]
 
 use veilo_core::audit::{trial_decrypt, SaplingOutput, ENC_CIPHERTEXT_SIZE};
+use veilo_core::memo::{
+    compute_bid_commit, is_veilo_memo, open_refund_address, pack_memo, unpack_memo,
+};
 use zcash_keys::encoding::decode_extfvk_with_network;
 use zcash_primitives::transaction::Transaction;
 // The probe stops at Canopy, which is the last upgrade that still produces v4
@@ -54,18 +60,20 @@ fn hex_decode(s: &str) -> Vec<u8> {
         .collect()
 }
 
-/// The 512-byte memo the probe sends: byte `i` is `i mod 256`.
-fn expected_memo() -> [u8; 512] {
-    let mut memo = [0u8; 512];
-    for (i, byte) in memo.iter_mut().enumerate() {
-        *byte = (i % 256) as u8;
+/// One `key=value` line from the probe's `memo.txt`.
+///
+/// Hand-rolled for the same reason as the JSON reader below: five scalar
+/// lookups do not justify a serde dependency in the test build.
+fn kv(text: &str, key: &str) -> String {
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix(key).and_then(|r| r.strip_prefix('=')) {
+            return rest.trim().to_string();
+        }
     }
-    memo
+    panic!("memo.txt has no `{key}=` line");
 }
 
-/// Minimal JSON string extraction, for the two fields this test needs.
-///
-/// Same reasoning as `demo_audit.rs`: one fixture does not justify serde.
+/// Minimal JSON string/number extraction, for the fields this test needs.
 mod json {
     pub fn str_field<'a>(text: &'a str, key: &str) -> &'a str {
         let needle = format!("\"{key}\":");
@@ -168,10 +176,69 @@ fn the_auditor_reads_a_mined_transaction() {
          the auditor cannot read what zcashd wrote",
     );
 
+    // -- 4. the recovered bytes are a real, self-consistent envelope ---------
+    let spec = artifact("memo.txt");
+    let sent = hex_decode(&kv(&spec, "memo"));
     assert_eq!(
+        bid.memo.as_slice(),
+        sent.as_slice(),
+        "the on-chain memo is not the 512 bytes the probe sent"
+    );
+
+    assert!(
+        is_veilo_memo(&bid.memo),
+        "the mined memo does not carry the Veilo magic and protocol tag"
+    );
+
+    let fields = unpack_memo(&bid.memo).expect("the mined memo is not a well-formed envelope");
+    assert_eq!(
+        pack_memo(&fields),
         bid.memo,
-        expected_memo(),
-        "the on-chain memo is not the 512 bytes that were sent"
+        "unpacking and repacking the mined envelope changed it"
+    );
+
+    // The reveal is the 40 bytes a bidder publishes after the deadline:
+    // auction_id(16) || bid_zat_le(8) || nonce(16).
+    let reveal = hex_decode(&kv(&spec, "reveal"));
+    assert_eq!(reveal.len(), 40, "the probe's reveal is not 40 bytes");
+    assert_eq!(
+        &reveal[..16],
+        &fields.auction_id[..],
+        "the reveal names a different auction"
+    );
+    let bid_zat = u64::from_le_bytes(reveal[16..24].try_into().expect("8 bytes"));
+    let nonce: [u8; 16] = reveal[24..].try_into().expect("16 bytes");
+
+    assert_eq!(
+        compute_bid_commit(&fields.auction_id, bid_zat, &nonce, &fields.epk_bid)
+            .expect("fixed-size inputs"),
+        fields.bid_commit,
+        "the commitment in the mined memo does not match the published reveal"
+    );
+    assert!(
+        bid_zat <= bid.value_zat,
+        "the mined note ({} zat) does not cover the bid ({bid_zat} zat)",
+        bid.value_zat
+    );
+
+    // Opening the refund seal requires the bidder's secret -- which a real
+    // auctioneer would never hold. The probe publishes a test key next to the
+    // artefact precisely so this last step is checkable.
+    let sk_refund: [u8; 32] = hex_decode(&kv(&spec, "sk_refund"))
+        .try_into()
+        .expect("sk_refund is 32 bytes");
+    let refund = open_refund_address(
+        &sk_refund,
+        &fields.epk_refund,
+        &fields.c_refund,
+        Some(&fields.auction_id[..]),
+    )
+    .expect("the sealed refund address does not open with the probe's key");
+    let expected_refund =
+        String::from_utf8(hex_decode(&kv(&spec, "refund_address"))).expect("utf8 refund address");
+    assert_eq!(
+        refund, expected_refund,
+        "the sealed refund address does not match the one the probe used"
     );
 
     // Value is not the point of this test, but a note that decrypted with a
@@ -182,10 +249,9 @@ fn the_auditor_reads_a_mined_transaction() {
     );
 
     println!(
-        "txid {} (height {}) -> note of {} zat, {} memo bytes recovered",
+        "txid {} (height {}) -> note of {} zat, bid of {bid_zat} zat, refund {refund}",
         tx.txid(),
         json::num_field(&probe, "block_height"),
         bid.value_zat,
-        bid.memo.iter().filter(|b| **b != 0).count()
     );
 }
