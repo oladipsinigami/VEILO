@@ -238,7 +238,7 @@ try {
       winner: stat["Winner"] ?? "",
       clearing: stat["Clearing price"] ?? "",
       recovered: stat["Bids recovered"] ?? "",
-      matches: stat["Matches stated result"] ?? "",
+      matches: stat["Matches stated price"] ?? "",
       rowCount: document.querySelectorAll("#out tbody tr").length,
       swept: m ? `${m[1]} outputs` : "",
       ms: m ? `${m[2]} ms` : "",
@@ -248,7 +248,7 @@ try {
   check("winner", summary.winner.startsWith(`bidder ${EXPECT.winner}`) ? EXPECT.winner : summary.winner, EXPECT.winner);
   check("clearing price", summary.clearing, EXPECT.clearing);
   check("bids recovered", summary.recovered, EXPECT.recovered);
-  check("matches stated result", summary.matches, EXPECT.matches);
+  check("matches stated price", summary.matches, EXPECT.matches);
   check("recovered bid rows", summary.rowCount, 5);
   check("page errors", pageErrors.length, 0);
   if (pageErrors.length) problems.push(`page errors: ${pageErrors.join(" | ")}`);

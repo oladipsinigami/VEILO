@@ -102,7 +102,7 @@ try {
   check("winner", stats.Winner === "bidder 10101010…", stats.Winner);
   check("clearing price", stats["Clearing price"] === "60.00 ZEC", stats["Clearing price"]);
   check("bids recovered", stats["Bids recovered"] === "5 of 10", stats["Bids recovered"]);
-  check("matches stated result", stats["Matches stated result"] === "yes", stats["Matches stated result"]);
+  check("matches stated price", stats["Matches stated price"] === "yes", stats["Matches stated price"]);
 
   const status = await page.locator("#status").innerText();
   check("status reports time and count", /audited 10 outputs in \d+ ms/.test(status), status);
