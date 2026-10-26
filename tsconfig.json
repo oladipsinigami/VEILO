@@ -7,9 +7,11 @@
     "strict": true,
     "noUncheckedIndexedAccess": false,
     "noEmit": true,
+    "allowJs": true,
+    "checkJs": false,
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true
   },
-  "include": ["web/src/**/*.ts"]
+  "include": ["web/src/**/*.ts", "demo/outcome.js"]
 }

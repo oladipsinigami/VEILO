@@ -133,10 +133,12 @@
   <div class="note">
     The ciphertexts below come from Zcash's real Sapling note encryption
     (<code>sapling_crypto</code>) and carry real 512-byte Veilo envelopes, so the
-    decryption above is genuine — there is no mock anywhere. <strong>They were not
-    mined on a chain.</strong> This demonstrates the cryptography and the auction
-    arithmetic, not transaction broadcast; that is a separate claim, currently
-    blocked on a Zallet/zebra state-format gap. The viewing key shown with the
+    decryption above is genuine — there is no mock anywhere. <strong>These ten
+    outputs were generated locally and were not mined.</strong> This demonstrates
+    the cryptography and the auction arithmetic, not transaction broadcast.
+    Broadcast is proved separately: <code>demo/chain-probe/</code> holds a
+    different transaction that <code>zcashd 6.20.0</code> mined into regtest block
+    111 with a packed Veilo bid in its memo. The viewing key shown with the
     result is a deterministic test value, which is why it looks like a
     placeholder.
   </div>
@@ -156,14 +158,14 @@
 import init, {
   audit_range, verify_reveal, memo_size, enc_ciphertext_size, compact_note_size,
 } from "./pkg/veilo_wasm.js";
+// The second-price rule lives in one place, shared with ops/verify-demo.mjs.
+// It used to be copied into this page, which is how the page drifted from the
+// reference without any test noticing.
+import {
+  ZEC, hexToBytes, packRecords, decodeReveal, resolveOutcome,
+} from "./outcome.js";
 
 const $ = (id) => document.getElementById(id);
-const ZEC = 100000000;
-const hexToBytes = (h) => {
-  const out = new Uint8Array(h.length / 2);
-  for (let i = 0; i < out.length; i++) out[i] = parseInt(h.slice(i * 2, i * 2 + 2), 16);
-  return out;
-};
 const short = (h, n = 12) => h.slice(0, n) + "…";
 const zec = (zat) => (zat / ZEC).toFixed(2);
 
@@ -171,24 +173,6 @@ const zec = (zat) => (zat / ZEC).toFixed(2);
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => (
   { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
 ));
-
-/** Concatenate the hex records into the flat buffer audit_range expects. */
-function packOutputs(records) {
-  const parts = records.map(hexToBytes);
-  const buf = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
-  let o = 0;
-  for (const p of parts) { buf.set(p, o); o += p.length; }
-  return buf;
-}
-
-/** Decode a 40-byte reveal: auction_id(16) || bid_zat_le(8) || nonce(16). */
-function decodeReveal(hex, auctionIdHex) {
-  if (hex.slice(0, 32) !== auctionIdHex) return null;   // bid for a different auction
-  const bytes = hexToBytes(hex);
-  let zat = 0n;
-  for (let i = 7; i >= 0; i--) zat = (zat << 8n) | BigInt(bytes[16 + i]);
-  return { zat: zat.toString(), nonce: hex.slice(48, 80) };
-}
 
 /**
  * Run the audit and derive the outcome.
@@ -204,7 +188,7 @@ async function audit() {
   if (!res.ok) throw new Error(`fixture.json: HTTP ${res.status}`);
   const fx = await res.json();
   const ivk = hexToBytes(fx.escrow_ivk);
-  const buf = packOutputs(fx.outputs);
+  const buf = packRecords(fx.outputs);
 
   const t0 = performance.now();
   // THE CORE CALL. One flat buffer in, JSON out. Nothing leaves this machine.
@@ -231,44 +215,25 @@ async function audit() {
       }
     }
 
-    const bidZat = matched ? Number(matched.zat) : null;
-    const collateral = b.value_zat;
-    const isSeller = b.epk_bid === sellerEpk;
-
-    // cls drives colour only. neutral = excluded by a stated rule (expected),
-    // warn = rejected by a threshold, bad = invalid.
-    let status, cls;
-    if (bidZat === null) {
-      status = "no valid reveal"; cls = "bad";
-    } else if (isSeller) {
-      status = "seller — excluded"; cls = "neutral";
-    } else if (collateral < bidZat) {
-      status = "under-collateralised"; cls = "bad";
-    } else if (bidZat < fx.reserve_zat) {
-      status = "below reserve"; cls = "warn";
-    } else {
-      status = "eligible"; cls = "ok";
-    }
-
-    return { ...b, bidZat, collateral, isSeller, status, cls };
+    return {
+      ...b,
+      // resolveOutcome refuses an amount that is not an exact integer, so the
+      // string from verify_reveal is only narrowed here.
+      bidZat: matched ? Number(matched.zat) : null,
+      isSeller: b.epk_bid === sellerEpk,
+    };
   });
 
-  // Second price among eligible, non-seller bids.
-  const eligible = rows
-    .filter((r) => r.cls === "ok")
-    .map((r) => r.bidZat)
-    .sort((a, b) => b - a);
+  const outcome = resolveOutcome(rows, { reserveZat: fx.reserve_zat });
 
-  const winnerBid = eligible[0];
-  const clearingPrice = eligible[1];
-  const winner = rows.find((r) => r.bidZat === winnerBid && r.cls === "ok");
-
-  return { fx, rows, winner, clearingPrice, ms, swept: buf.length };
+  return { fx, ...outcome, ms, swept: buf.length };
 }
 
-function render({ fx, rows, winner, clearingPrice, ms, swept }) {
+function render({ fx, rows, winner, clearingPriceZat, topTie, ms, swept }) {
   const exp = fx.expected;
-  const agrees = winner && clearingPrice === exp.clearing_price_zat;
+  // A price comparison, not a winner comparison: the fixture's expected winner
+  // is prose ("Bob") and cannot be checked against an opaque bidder key.
+  const agrees = winner !== null && clearingPriceZat === exp.clearing_price_zat;
 
   $("out").innerHTML = `
     <h2>Result</h2>
@@ -276,20 +241,29 @@ function render({ fx, rows, winner, clearingPrice, ms, swept }) {
       <div class="stat"><div class="k">Winner</div>
         <div class="v ${winner ? "ok" : "bad"}">${winner ? "bidder " + short(winner.epk_bid, 8) : "none"}</div></div>
       <div class="stat"><div class="k">Clearing price</div>
-        <div class="v">${clearingPrice != null ? zec(clearingPrice) + " ZEC" : "—"}</div></div>
+        <div class="v">${winner ? zec(clearingPriceZat) + " ZEC" : "—"}</div></div>
       <div class="stat"><div class="k">Bids recovered</div>
         <div class="v">${rows.length} <span class="dim of-total">of ${fx.outputs.length}</span></div></div>
-      <div class="stat"><div class="k">Matches stated result</div>
+      <div class="stat"><div class="k">Matches stated price</div>
         <div class="v ${agrees ? "ok" : "bad"}">${agrees ? "yes" : "no"}</div></div>
     </div>
 
     <p class="provenance">
-      That last figure is not this page marking its own work. The expected value
+      That last figure is not this page marking its own work. The expected price
       is generated separately by the Rust reference in
       <a href="https://github.com/oladipsinigami/VEILO/blob/main/crates/veilo-core/examples/demo_fixture.rs">demo_fixture.rs</a>
       and stored in the fixture. This page either reproduces it from the
-      ciphertexts or it does not.
+      ciphertexts or it does not. It checks the price only; the fixture's expected
+      winner is prose, so that half cannot be compared mechanically.
     </p>
+
+    ${topTie ? `
+    <div class="note">
+      The top two eligible bids are the same amount. The protocol breaks that tie
+      by block height, and the records this page receives from WebAssembly carry
+      no height, so the winner above is the first of the tied bids in fixture
+      order. Treat the winner as undecided until the height is available.
+    </div>` : ""}
 
     <h2>Recovered bids</h2>
     <div class="panel">
@@ -304,8 +278,8 @@ function render({ fx, rows, winner, clearingPrice, ms, swept }) {
               <td><span class="hex mono">${short(r.epk_bid, 10)}</span>
                   ${r.isSeller ? '<span class="tag neutral tag-seller">seller</span>' : ""}</td>
               <td class="num">${r.bidZat != null ? zec(r.bidZat) + " ZEC" : "—"}</td>
-              <td class="num ${r.collateral < (r.bidZat ?? 0) ? "bad" : ""}">${zec(r.collateral)} ZEC</td>
-              <td class="${r.cls}">${r.status}</td>
+              <td class="num ${r.value_zat < (r.bidZat ?? 0) ? "bad" : ""}">${zec(r.value_zat)} ZEC</td>
+              <td class="${r.tone}">${r.label}</td>
               <td class="hex mono">${short(r.bid_commit, 10)}</td>
             </tr>`).join("")}</tbody>
         </table>
@@ -323,8 +297,9 @@ function render({ fx, rows, winner, clearingPrice, ms, swept }) {
       <p class="note note-tight">
         The compact ${compact_note_size()}-byte form carries no memo at all, which is why
         an auditor fed by a light client could never do this job. Clearing price is the
-        second-highest eligible bid after the seller's own bid and any
-        under-collateralised bid are removed.
+        higher of the reserve and the second-highest eligible bid, after the seller's own
+        bid and any under-collateralised bid are removed. With only one eligible bidder,
+        that is the reserve.
       </p>
     </div>`;
 }
