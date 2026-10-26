@@ -158,11 +158,13 @@ real result.
 
 Beyond the fixture, one envelope was carried by an actual mined transaction.
 `demo/chain-probe/tx.hex` is the raw bytes of a v4 Sapling transaction that
-`zcashd 6.20.0` built and mined into regtest block 111, with the 512-byte
-envelope as its memo. `tests/chain_probe.rs` parses that transaction from
-scratch, checks its hash, decodes the published `zxview…` key, and trial-decrypts
-the outputs to recover the memo. It is the first input to the auditor in this
-repository that our own code did not produce.
+`zcashd 6.20.0` built and mined into regtest block 111, with a packed Veilo bid
+— auction id, 60 ZEC commitment, sealed refund address — as its memo.
+`tests/chain_probe.rs` parses that transaction from scratch, checks its hash,
+decodes the published `zxview…` key, trial-decrypts the outputs, then unpacks the
+envelope, recomputes the bid commitment from the 40-byte reveal, and opens the
+refund seal. It is the first input to the auditor in this repository that our own
+code did not produce.
 
 ---
 
@@ -173,7 +175,7 @@ Stated plainly, because a judge should find these by reading.
 1. **No transaction on a public network.** The envelope has been *mined*, but only
    on a local regtest chain. `demo/chain-probe/tx.hex` is a v4 Sapling
    transaction that `zcashd 6.20.0` mined into block 111
-   (`1d67ee39…e85a`), carrying the 512-byte Veilo envelope as its memo.
+   (`6ff52918…e325`), carrying a packed 512-byte Veilo bid as its memo.
    `crates/veilo-core/tests/chain_probe.rs` parses those raw bytes and recovers
    the memo using nothing but the published viewing key — no wallet database, no
    cooperation from the node. That answers "does a real node accept, encrypt and

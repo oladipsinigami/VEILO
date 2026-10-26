@@ -2,11 +2,14 @@
   "network": "regtest",
   "zcashd": "6.20.0",
   "nuparams": ["5ba81b19:1", "76b809bb:2", "2bb40e60:3", "f5b9230b:4", "e9ff75a6:5"],
-  "txid": "1d67ee3913db66f35cedae7ecd4c1e5071d35f7a3bd359ecfcda809feaf8e85a",
+  "txid": "6ff52918701fff3ccf674d36556d18553ee6cd2db0e92256ffc4108ac26ee325",
   "block_height": 111,
-  "block_hash": "0e9647be4e5a935cc08b983505cdb80e939773ebad133f2c29cfca0c00054f1a",
-  "escrow_address": "zregtestsapling1843w0lw4unqmj7t2cc40r9mga3jhvcrw6ehymdlxjd7xjddsfsfk57zngv457z30yhywk967mm2",
-  "escrow_extfvk": "zxviewregtestsapling1qsygrxe4qqqqpqyzdwvs3990468v8zrm2qhdxk0cfl880m74kyv2h2wghlrqdlm08aj3yzr5j3t76k4r89jpm9wqehwjy3jkktjtytw8lgszdcprj2v5xan7qnuyrjxsdsx49v78h005gzcsuqexdtjunfvzd8wxsw6yhkzmm03vqu534x3tng503vh2d6wlc0eka0nqlqg2v6g48fd4fsgey6prncn9jv9v85chd8y29ckcmkhmnl0qy4rtq20qlr8w8urmdlh09uqr3cqen",
+  "block_hash": "06746fbf5ded8e65af693a7f45b3a616d5ef3ff3da4e65ec6bdb05be8311871a",
+  "escrow_address": "zregtestsapling1hjah3xuapma7yjrd6xh7sgx885c3c370afjhne63f2wg0akrz5gnl4wvygupczk2f4s5x86hkyk",
+  "escrow_extfvk": "zxviewregtestsapling1qstnf4q0qqqqpqz5dxuls740kuygzq76ssk7k0lazpche67rapxjztmtstqpya5v7mfmy7eufmx7esexzv49qh5t9f6dnr40eu6grhdye7d0jwd8njjqruu8h234ctgcvkz55ued5nzxz70202d9v6m7yt94s4uedzyz7h59hcn75gum4rejqplj9ylevhp9tagk7l3ukgdvxt7rtcz2082kkz746a2x3cwk433layprhhp2t3y83uz4pgz88fe6wnfrd5rgylahsds748alj",
+  "refund_address": "zregtestsapling1yuw2z0xuzpafnml99fhwz08efwn2wp637rqyerswz3f7kaljlkzzf0aynyjrvylvuye22htzvjy",
+  "memo_kind": "packed-veilo-bid",
+  "memo_generator": "crates/veilo-core/examples/chain_memo.rs",
   "memo_hex_len": 1024,
   "memo_matches": true
 }

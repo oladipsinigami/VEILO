@@ -116,8 +116,9 @@ is generated locally. This demonstrates the cryptography and the auction
 arithmetic, not transaction broadcast.
 
 A *different* transaction was mined and is committed under `chain-probe/`: a v4
-Sapling transaction that `zcashd 6.20.0` mined into regtest block 111, carrying
-the 512-byte envelope. `crates/veilo-core/tests/chain_probe.rs` parses it and the
-auditor recovers the memo with only the published viewing key. That closes the
-"will a node accept and mint the envelope" question and leaves "does it work on a
-public network" open (see `ops/README.md` and the top-level README).
+Sapling transaction that `zcashd 6.20.0` mined into regtest block 111, carrying a
+packed 512-byte Veilo bid as its memo. `crates/veilo-core/tests/chain_probe.rs`
+parses it and the auditor recovers the envelope with only the published viewing
+key, then verifies the commitment and opens the sealed refund address. That
+closes the "will a node accept and mint the envelope" question and leaves "does
+it work on a public network" open (see `ops/README.md` and the top-level README).
