@@ -27,6 +27,7 @@ import {
   hexToBytes,
   packRecords,
   decodeReveal,
+  applyDeclaredSellerExclusion,
   resolveOutcome,
 } from "../demo/outcome.js";
 
@@ -78,12 +79,15 @@ const rows = bids.map((b) => {
   return {
     ...b,
     bidZat: matched ? Number(matched.zat) : null,
-    isSeller: b.epk_bid === fx.seller_epk_bid,
   };
 });
 
-// --- 3. classify and price, through the page's own module ------------------
-const outcome = resolveOutcome(rows, { reserveZat: fx.reserve_zat });
+// --- 3. apply the auction document's declared seller key -------------------
+// This is a declaration, not a proof, and the check says so. The negative case
+// below proves the exclusion comes from the declaration and is not hardcoded.
+const exclusion = applyDeclaredSellerExclusion(rows, fx.seller_epk_bid);
+const withoutDeclaration = applyDeclaredSellerExclusion(rows, null);
+const outcome = resolveOutcome(exclusion.rows, { reserveZat: fx.reserve_zat });
 const { winner, clearingPriceZat, effective } = outcome;
 
 for (const r of outcome.rows) {
@@ -96,6 +100,10 @@ for (const r of outcome.rows) {
 if (!winner) fail("no winner: the fixture must yield at least one eligible bid");
 console.log(`  winner: ${winner.epk_bid.slice(0, 10)}`);
 console.log(`  clearing price: ${zec(clearingPriceZat)} ZEC`);
+console.log(
+  `  seller exclusion: ${exclusion.excludedCount} bid(s) by declared key ` +
+  `${exclusion.declared ? exclusion.declared.slice(0, 10) : "(none)"} -- no proof`
+);
 
 // --- 4. it must match what the fixture claims ------------------------------
 if (clearingPriceZat !== fx.expected.clearing_price_zat) {
@@ -103,6 +111,14 @@ if (clearingPriceZat !== fx.expected.clearing_price_zat) {
 }
 
 // --- 5. the fixture must keep exercising the rules -------------------------
+// Exactly one bid is excluded, and it is the one the auction document names.
+// If the declaration were hardcoded, removing it would still exclude a bid.
+if (exclusion.excludedCount !== 1) {
+  fail(`expected exactly one declared seller bid, excluded ${exclusion.excludedCount}`);
+}
+if (withoutDeclaration.excludedCount !== 0 || withoutDeclaration.rows.some((r) => r.isSeller)) {
+  fail("exclusion survived removing the declaration; it is not driven by the document");
+}
 // The seller's bid must never be the winner and must never set the price.
 if (winner.isSeller) fail("the winner must not be the seller");
 if (outcome.rows.some((r) => r.isSeller && r.status === "eligible")) {

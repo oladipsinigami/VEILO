@@ -240,7 +240,9 @@ test("I3: the seller cannot profit by bidding (the attack that forced Revision 2
   const sellerNet = sellerLine.amountZat + selfRefund.amountZat - 10n * ZAT;
   assert.equal(sellerNet, 0n, "captured the winner's entire premium of 8 ZEC minus its own stake");
 
-  // --- fixed (Revision 2): the shill is excluded with a valid proof ---
+  // --- fixed (Revision 2): the shill is excluded, given an opener ---
+  // `openSealedRefund` is a stub standing in for SK_refund; the assertion is
+  // about the rule, not about anyone being able to verify it publicly.
   const withProof = applySellerExclusion(resolveBids(bids, reveals), a, [
     {
       orderKey: "1101:000000",

@@ -176,9 +176,24 @@ pub fn resolve_bids(
 
 /// A claim that a bid should be excluded from pricing because it is the seller's.
 ///
-/// The auctioneer must prove it: the decrypted refund address must actually be
-/// `seller_UA`. Without this, a second-price auction is riggable — the seller bids,
+/// The auctioneer asserts that the decrypted refund address is `seller_UA`.
+/// Without the exclusion, a second-price auction is riggable — the seller bids,
 /// is refunded the excess, and captures the inflated price.
+///
+/// # Trust boundary (read this before reusing the type)
+///
+/// This is not a publicly verifiable proof, and the version of this doc comment
+/// that said the auctioneer "must prove it" was wrong. Opening `c_refund` needs
+/// `SK_refund`. Only the auctioneer has it, and publishing it would open every
+/// bidder's refund address, not just the excluded bid's — defeating I4. A seller
+/// that shills has no incentive to volunteer its own `esk_refund` either.
+///
+/// Consequently `apply_seller_exclusion` verifies a claim *given an opener*, and
+/// the opener is supplied by the caller. In the coordinator's own settlement path
+/// that is fine: it is checking its own arithmetic before paying out. It is not
+/// third-party verification, and the browser auditor does not use this path — it
+/// applies the auction document's declared seller key instead. Closing the gap
+/// needs per-bid derived refund keys; see README limitation 7.
 pub struct ExclusionProof {
     pub order_key: String,
     pub claimed_address: String,
@@ -191,6 +206,14 @@ pub struct SellerExclusion {
     pub rejected_proofs: Vec<String>,
 }
 
+/// Exclude the bids whose sealed refund address opens to the seller's address.
+///
+/// `open_sealed_refund` is the trust boundary: it needs `SK_refund`, so whoever
+/// supplies it can decide what the "proof" opens to. This function is therefore a
+/// consistency check for a caller who already holds the key (the coordinator
+/// verifying its own settlement), **not** a public verifier. A third party cannot
+/// run it without the auctioneer's secret, and handing them that secret exposes
+/// every bidder's refund address. See [`ExclusionProof`].
 pub fn apply_seller_exclusion(
     bids: Vec<AuditedBid>,
     auction: &AuctionParams,

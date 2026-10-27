@@ -221,9 +221,11 @@ fn the_auditor_reads_a_mined_transaction() {
         bid.value_zat
     );
 
-    // Opening the refund seal requires the bidder's secret -- which a real
-    // auctioneer would never hold. The probe publishes a test key next to the
-    // artefact precisely so this last step is checkable.
+    // Opening the refund seal requires `SK_refund` -- the *auction's* refund
+    // secret, not the bidder's. The probe publishes a fixed test key next to the
+    // artefact so this step is checkable, and that is exactly the gap: a real
+    // auctioneer cannot publish this key without opening every bidder's refund
+    // address. This test proves the seal codec, not a public exclusion proof.
     let sk_refund: [u8; 32] = hex_decode(&kv(&spec, "sk_refund"))
         .try_into()
         .expect("sk_refund is 32 bytes");

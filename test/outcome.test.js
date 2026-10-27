@@ -19,6 +19,7 @@ import {
   packRecords,
   decodeReveal,
   classifyRow,
+  applyDeclaredSellerExclusion,
   resolveOutcome,
 } from "../demo/outcome.js";
 import { computeAuctionResult } from "../web/src/lib/auction.ts";
@@ -191,6 +192,69 @@ test("classifyRow reports the seller before the collateral problem", () => {
     classifyRow({ value_zat: 1, bidZat: 2, isSeller: true }, 0),
     "seller"
   );
+});
+
+/** A row with a real 64-hex bidder key, for the declaration tests. */
+function keyedRow(epk, { bid, collateral }) {
+  return {
+    epk_bid: epk,
+    bid_commit: `commit-${epk.slice(0, 4)}`,
+    value_zat: collateral,
+    bidZat: bid,
+  };
+}
+
+test("the declared seller key excludes exactly that bid, and nothing else", () => {
+  const A = "11".repeat(32);
+  const B = "22".repeat(32);
+  const rows = [
+    keyedRow(A, { bid: 70 * ZEC, collateral: 70 * ZEC }),
+    keyedRow(B, { bid: 90 * ZEC, collateral: 90 * ZEC }),
+  ];
+  const out = applyDeclaredSellerExclusion(rows, B);
+
+  assert.equal(out.excludedCount, 1);
+  assert.equal(out.rows[1].isSeller, true);
+  assert.equal(out.rows[0].isSeller, false);
+  assert.equal(out.basis, "auction-document");
+  // The input must not be mutated: the caller may still want the unmarked rows.
+  assert.equal(rows[1].isSeller, undefined);
+});
+
+test("no declaration excludes nobody", () => {
+  const rows = [keyedRow("11".repeat(32), { bid: 70 * ZEC, collateral: 70 * ZEC })];
+  for (const declared of [null, undefined]) {
+    const out = applyDeclaredSellerExclusion(rows, declared);
+    assert.equal(out.excludedCount, 0);
+    assert.equal(out.declared, null);
+    assert.equal(out.rows[0].isSeller, false);
+  }
+});
+
+test("a declaration naming a key that is not present excludes nobody", () => {
+  const rows = [keyedRow("11".repeat(32), { bid: 70 * ZEC, collateral: 70 * ZEC })];
+  const out = applyDeclaredSellerExclusion(rows, "ab".repeat(32));
+  assert.equal(out.excludedCount, 0);
+  assert.equal(out.rows[0].isSeller, false);
+});
+
+test("a malformed declared key is refused, not silently ignored", () => {
+  assert.throws(
+    () => applyDeclaredSellerExclusion([], "1212"),
+    /64 hex characters/
+  );
+  assert.throws(
+    () => applyDeclaredSellerExclusion([], "zz".repeat(32)),
+    /64 hex characters/
+  );
+});
+
+test("a declared key in any hex case matches the lower-case on-chain key", () => {
+  const A = "ab".repeat(32);
+  const rows = [keyedRow(A, { bid: 70 * ZEC, collateral: 70 * ZEC })];
+  const out = applyDeclaredSellerExclusion(rows, A.toUpperCase());
+  assert.equal(out.excludedCount, 1);
+  assert.equal(out.declared, A);
 });
 
 // ---------------------------------------------------------------------------

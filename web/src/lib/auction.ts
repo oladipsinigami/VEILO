@@ -145,9 +145,13 @@ export interface ExclusionProof {
   /** The decrypted UA the exclusion claims to rest on. */
   claimedAddress: string;
   /**
-   * Verifier callback: re-derives the sealed refund for this bid and returns the
-   * address it opens to. Supplied by the auditor, which holds PK_refund and can
-   * recompute ChaCha20-Poly1305 from (epk_refund, c_refund).
+   * Opener callback: returns the address the bid's sealed refund decrypts to.
+   *
+   * This needs `SK_refund`, not `PK_refund` — the public key cannot decrypt, and
+   * the comment here previously implied it could. Whoever supplies this callback
+   * supplies the trust: the check is only as good as the opener. That is why the
+   * browser auditor does not use this path and applies the auction document's
+   * declared key instead (see README limitation 7).
    */
   openSealedRefund: (orderKey: string) => string;
 }
@@ -158,8 +162,13 @@ export interface ExclusionProof {
  * Second-price auctions are shilling-resistant against a non-seller: raising the second
  * price only raises what the winner pays. The attack that works is the SELLER bidding,
  * because the seller is refunded the excess and captures the inflated price. So the
- * clearing price is computed over non-seller bids, and the auctioneer must publish a
- * proof for each exclusion: the decrypted refund address must actually equal seller_UA.
+ * clearing price is computed over non-seller bids.
+ *
+ * How "seller" is established is the weak point. This function accepts a caller-supplied
+ * opener, so it verifies a claim only relative to that opener; it is not a public proof.
+ * A third party cannot run it without `SK_refund`, and publishing that key would expose
+ * every bidder's refund address. The browser therefore applies the auction document's
+ * declared seller key instead, and labels the result "declared".
  *
  * Returns the subset of bids that survive exclusion.
  */

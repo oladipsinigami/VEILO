@@ -120,7 +120,8 @@ schedule rather than left to judgement under pressure.
 
 > **Revision 2 changelog.** Revision 1 of this blueprint had four defects that a competent
 > Track 2 judge would find. All four are fixed below:
-> 1. **Seller-shill attack** on the second-price rule (now: clearing price excludes the seller, with a publicly checkable exclusion proof — §3).
+> 1. **Seller-shill attack** on the second-price rule (now: clearing price excludes the seller; the
+>    exclusion is *declared* by the auction document and labelled as such — see the Correction in §3).
 > 2. **`SK_reveal` held by the coordinator since Phase A**, which made "sealed bid" false and the threat model wrong (now: opaque commitment + permissionless reveal — §2).
 > 3. **The browser auditor needs a full node**, not `lightwalletd` (now stated in §5 and budgeted in Part 4).
 > 4. **Over-collateralization was load-bearing for nothing** and is removed (now: `collateral_zat ≥ bid_zat`).
@@ -149,7 +150,7 @@ These are the properties the rest of the design serves. Every one is testable.
 | :--- | :--- | :--- |
 | **I1** | No party can read any bid before `H_end`. Bids are 32-byte commitments; `bid_zat` never touches the chain before reveal. | §2 memo layout; `PK_reveal` **does not exist** |
 | **I2** | The winner and clearing price are recomputable by anyone from public chain data, with no trust in the auctioneer. | §1.4 audit, `veilo-wasm` |
-| **I3** | The auctioneer cannot exclude any bid except by proving, publicly, that the bid's refund address is the seller's own. | §3 seller-exclusion proof |
+| **I3** | The auctioneer cannot quietly exclude a bidder's bid. Exclusions follow the seller key named in the auction document, and the auditor labels them *declared* rather than proven. | §3 — declaration today; per-bid derived refund keys are the specified fix |
 | **I4** | No bidder's refund address, winner's identity included, is ever published. | `c_refund` under `PK_refund`; `SK_refund` never published |
 | **I5** | Every collateral zatoshi is returned or paid out, to a provable destination, in one transaction. | §4 settlement + OVK verification |
 | **I6** | A bid is bound to the chain by `nExpiryHeight`, so the coordinator cannot reorder, censor, or cherry-pick bids. | ZIP 203 `nExpiryHeight` + §1.3 receiver rotation |
@@ -264,7 +265,7 @@ sequenceDiagram
     A->>X: 7. Publish UIVK_escrow (public) + rotate UA_escrow receiver
     B->>X: 8. Publish 40B reveal (auction_id, bid_zat, nonce) -- permissionless
     X->>Z: 9. Fetch 580B encCiphertexts for [H_start, H_end]
-    X->>X: 10. WASM trial-decrypt via UIVK_escrow; check note.value >= bid_zat;<br/>apply seller-exclusion proofs (Part 3 §3); compute 2nd price + tie-break
+    X->>X: 10. WASM trial-decrypt via UIVK_escrow; check note.value >= bid_zat;<br/>exclude bids on the document's declared seller key (declared, not proven -- §3); compute 2nd price + tie-break
     X->>X: 11. Same winner + clearing price on every auditor
     A->>Z: 12. Broadcast 1 batched shielded tx (seller, winner change, N-1 refunds)
     A->>X: 13. Publish settlement OVK
@@ -280,15 +281,35 @@ because the seller is refunded the excess and captures the inflated price.
 **Rule:** `ClearingPrice` is computed over bids from participants **excluding the seller**.
 
 Enforcement cannot be cryptographic at bid time, because the coordinator holds `SK_refund` and
-could construct a note claiming any role. So exclusion is enforced *publicly, at audit*:
+could construct a note claiming any role. So the exclusion has to be checkable *after the fact*,
+at audit.
 
-> For every bid the settlement engine excludes as seller-owned, it MUST publish the decrypted
-> `c_refund` alongside a proof that `ChaCha20-Poly1305` under `(epk_refund, PK_refund)` opens to
-> `seller_UA`. Any auditor recomputes the decryption and rejects the exclusion if it does not.
+> **Correction (Revision 3).** Revision 2 of this section said that for every excluded bid the
+> auctioneer "MUST publish the decrypted `c_refund` alongside a proof that ChaCha20-Poly1305 …
+> opens to `seller_UA`", and that "any auditor recomputes the decryption". **That is not
+> implementable, and the claim was wrong.** Opening `c_refund` requires `SK_refund`. The
+> auctioneer can publish `SK_refund` — but then every bidder's refund address opens, not just the
+> excluded bid's, so the "proof" destroys invariant I4. It also cannot be narrowed by asking the
+> seller for its per-bid `esk_refund`: a seller shilling to inflate the price simply declines.
+>
+> What is actually implemented, today, is a **declaration**: the auction document names the
+> seller's bidder key, and the auditor excludes the recovered bid using that key. The auditor
+> reports the price as dependent on that declaration and labels the row `seller — declared`. The
+> sealed-refund opener exists in `apply_seller_exclusion`, but the opener is supplied by the
+> caller, so it is a trust boundary rather than third-party verification.
+>
+> The construction that *would* close the gap is per-bid derived refund keys. Bidders seal to
+> `PK_i = PK_refund + H("VEILO-REFUND-V1" ‖ bid_commit)·G`. At audit the auctioneer publishes
+> `SK_i = SK_refund + H(…)` only for the bids it excludes; anyone checks `SK_i·G == PK_i` and then
+> opens that one seal. An auditor learns one refund address, for a bid already attributable to the
+> seller, and nothing about anyone else. This is a protocol and fixture change (the per-bid `PK_i`
+> must be in the memo), so it is specified here and not implemented. See README limitation 7.
 
-An auditor therefore learns the refund address **of excluded bids only** — which are the
-coordinator's own bids, already public via `seller_UA`. Nothing about real bidders leaks, and the
-exclusion set is capped at the number of notes the auctioneer sent itself.
+Under the current declaration rule, an auditor who trusts the document's key assignment learns
+the seller's own bid and no one else's. A seller who wants to bid undetected still needs a
+*second* refund address, because the named key is excluded — the identity costs described below
+still apply, but they now rest on the document being honest about which key is the seller's.
+
 
 **Limit, stated honestly:** a seller who wants to bid has to control a *second* refund address,
 because a bid decrypting to `seller_UA` is excluded. This is a meaningful economic cost and not a
@@ -443,10 +464,10 @@ veilo/
 ├── RESEARCH_NOTES.md             # verification log: URL → claim → verdict
 ├── docker-compose.yml            # zebrad + zaino + settlement-engine
 ├── crates/
-│   ├── veilo-core/               # memo codec, Vickrey math, exclusion proof verify
+│   ├── veilo-core/               # memo codec, Vickrey math, seller-exclusion rule
 │   │   ├── src/memo.rs           # 512B pack/unpack, X25519 + ChaCha20Poly1305 + BLAKE2b
 │   │   ├── src/audit.rs          # trial-decrypt, solvency, 2nd-price, tie-break
-│   │   └── src/exclusion.rs      # seller-exclusion proof verification
+│   │   └── src/auction.rs        # exclusion check (opener supplied by the caller; see §3)
 │   ├── veilo-wasm/               # wasm-bindgen wrapper over veilo-core
 │   └── settlement-engine/        # axum + zcash_client_backend batched settler
 │       ├── src/node_source.rs    # block-range ciphertext fetch from zebrad
@@ -472,7 +493,7 @@ veilo/
 | **2** | *"Doesn't the auctioneer peek at bids before `H_end`?"* | **There is no bid-decryption key.** Bids are 32-byte commitments; `bid_zat` is not on chain until permissionless reveal. | Unit test: no component of the coordinator can produce `bid_zat` from the escrow key material. Demo: coordinator's UI cannot display any bid amount at `H_end − 1`. |
 | **3** | *"Bid says 100 TAZ, note holds 1 TAZ."* | Solvency check `note.value ≥ bid_zat` in both auditor and settler; violations are excluded and refunded. | Automated test + live demo with a deliberately under-collateralized bid. |
 | **4** | *"Your server logs my IP."* | Bid path is 100% client-side after page load. | DevTools Network panel cleared before bid creation; zero requests during construction. |
-| **5** | *"The seller bids to inflate the clearing price."* | Clearing price excludes the seller; every exclusion must ship a publicly checkable `c_refund`-decrypts-to-`seller_UA` proof (§3). | Auditor rejects a forged exclusion; unit test on the proof verifier. **New in Rev 2.** |
+| **5** | *"The seller bids to inflate the clearing price."* | Clearing price excludes the bid on the seller key named in the auction document. That is a **declaration, not a proof** — opening `c_refund` would require publishing `SK_refund`, which breaks I4 (§3 Correction). | Auditor excludes exactly the declared key and labels it declared; a run with the declaration removed excludes nobody. Per-bid derived refund keys are the specified fix. |
 | **6** | *"You censored a bid."* | `UIVK_escrow` is public, so the bid set is recomputable by anyone. Rule: all decryptable in-window notes count. | Auditor independently derives the same bid count as the coordinator. **New in Rev 2.** |
 | **7** | *"You stole a loser a few zatoshis in settlement."* | OVK published; each bidder verifies their own output locally. | Live demo: a bidder's browser shows `received == expected`. **New in Rev 2.** |
 | **8** | *"Public testnet is down when judges test your URL."* | Pre-recorded audit bundle of real testnet ciphertexts + self-hosted `zebrad` regtest path; demo works with no faucet and no wallet extensions. | Incognito test, zero extensions installed. |
@@ -517,7 +538,7 @@ subordinate to de-risking those two by Oct 15.
 
 | Dates | Deliverable | Gate |
 | :--- | :--- | :--- |
-| **Oct 16–17** | `veilo-core`: 512-byte memo codec (Rev 2 layout), reveal encode/decode, Vickrey math with reserve + tie-break, seller-exclusion proof verifier. | `cargo test` green on: valid bids, under-collateralized rejection, late-block rejection, tie-break determinism, exclusion proof accept/reject. |
+| **Oct 16–17** | `veilo-core`: 512-byte memo codec (Rev 2 layout), reveal encode/decode, Vickrey math with reserve + tie-break, seller-exclusion check. | `cargo test` green on: valid bids, under-collateralized rejection, late-block rejection, tie-break determinism, exclusion accept/reject (with the opener supplied by the test). |
 | **Oct 18** | **🔒 `veilo-core` API freeze.** | No signature changes after this date. |
 
 ### Phase 2 — Audit path (Oct 19–20)
@@ -567,10 +588,10 @@ subordinate to de-risking those two by Oct 15.
 > 1. **No bid is readable before the deadline, by anyone.** We hold no bid-decryption key: a commitment hides a value, but encrypting to a key the auctioneer holds does not.
 > 2. **Zero network requests on the bid path.** The memo and `ZIP-321` URI are built in-browser; only the bidder's wallet broadcasts.
 > 3. **Identities stay sealed forever.** `c_refund` is encrypted to a never-published settlement key, so the viewing key exposes every bid amount while redacting every refund address, the winner's included.
-> 4. **The seller cannot rig the price.** Second-price is shilling-resistant against outsiders but not the seller, so clearing price excludes the seller, and every exclusion ships a checkable proof.
+> 4. **The seller cannot rig the price.** Second-price is shilling-resistant against outsiders but not the seller, so clearing price excludes the key the auction document names as the seller's. That exclusion is *declared*, not proven (§3 Correction); the per-bid derived-key proof is specified, not built.
 >
 > **Real vs. Mocked**
-> - **Real:** memo codec, commitment/reveal scheme, WASM note trial-decryption, solvency check, seller-exclusion proofs, batched settlement, OVK refund verification.
+> - **Real:** memo codec, commitment/reveal scheme, WASM note trial-decryption, solvency check, seller-exclusion rule (declared key, labelled as such), batched settlement, OVK refund verification.
 > - **Limits:** the auctioneer is custodial during the window (threshold signing is roadmap); bid amounts go public at settlement — this is a private-*bidding* auction.
 
 ---
@@ -604,7 +625,7 @@ a judge (or future session) can reproduce the checks rather than take them on tr
 | :--- | :--- | :--- |
 | Coordinator held `SK_reveal` from Phase A | Rev-1 Part 3 §2.2 published `PK_reveal` in Phase A, `SK_reveal` in Phase C | Removed both keys; bids are opaque commitments with permissionless reveals (§3.2) |
 | Threat model claimed `collateral_zat` hidden from coordinator | Coordinator derives the escrow keys, so can always read `note.value` | Restated honestly (§5, "Corrected from Revision 1") |
-| Seller-shill attack on second-price | Seller bid is refunded the excess and captures the inflated price | Clearing price excludes the seller, with a publicly checkable exclusion proof (§3) |
+| Seller-shill attack on second-price | Seller bid is refunded the excess and captures the inflated price | Clearing price excludes the seller key named in the auction document — declared, not proven (§3 Correction); per-bid derived refund keys are the specified fix |
 | `lightwalletd` assumed usable for chain access | `COMPACT_NOTE_SIZE = 52`; memos absent from compact blocks | Run `zebrad`/`zaino`; added as Spike A and Trap 3 (Part 3 §6, Part 4 Phase 0) |
 | Same `ephem_sk` reused for two recipients | ECDH anti-pattern — one leaked static key exposes both shared secrets | Two independent ephemerals (§5 layout) |
 | ZIP-317 fee modelled per-bidder | ZIP-317 is `marginal_fee × max(grace, logical_actions)`, per-tx | Single fee, seller bears, 250-output cap under ZIP-218's 300 (Part 3 §7) |

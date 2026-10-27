@@ -93,7 +93,9 @@ scenario("invalid_bids_refunded", {
   proofs: [],
 });
 
-// 5. The seller shill attack, with a valid exclusion proof (the Revision 2 fix).
+// 5. The seller shill attack, excluded by an opener the caller supplies. This
+//    tests the rule and its reject paths; it is not a public proof (the opener
+//    needs SK_refund). See README limitation 7.
 scenario("seller_shill_excluded", {
   reserve: 1_000_000,
   hStart: 1000,

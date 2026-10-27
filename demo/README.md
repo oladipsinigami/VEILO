@@ -22,8 +22,17 @@ It must be served over HTTP, not opened as a `file://` URL — ES modules and
 4. Each surviving bid's amount is resolved by checking a permissionless reveal
    against the `bid_commit` that was already in the memo — via `verify_reveal`,
    also in wasm. A reveal that does not hash to the committed value is rejected.
-5. Bids are classified: seller excluded, under-collateralised rejected, below
-   reserve rejected. The remainder are sorted and the **second-highest** wins.
+5. Bids are classified: seller **declared and excluded**, under-collateralised
+   rejected, below reserve rejected. The remainder are sorted and the
+   **second-highest** wins.
+
+   The seller row is a declaration, not a proof. The page excludes whichever
+   recovered bid uses the key that `fixture.json` names in `seller_epk_bid`, and
+   says in a note under the result that the price depends on that declaration.
+   It cannot open the bid's sealed refund address to show the bid really is the
+   seller's: that needs `SK_refund`, which only the auctioneer holds, and
+   publishing it would expose every bidder's refund address. The construction
+   that would fix this is in README limitation 7.
 
 Expected output:
 
@@ -37,6 +46,13 @@ clearing price  60.00 ZEC
 The seller bids **65 ZEC** and is excluded. That is the highest bid other than
 the winner's, so if the exclusion rule were missing the clearing price would be
 65 ZEC instead of 60. The demo is built to make that difference visible.
+
+The exclusion follows `fixture.json`'s `seller_epk_bid`, and
+`npm run demo:audit` checks that it really does: the run is repeated with the
+declaration removed and must then exclude nobody. What the page cannot check is
+whether that key genuinely belongs to the seller. `c_refund` in the fixture is
+filler, no seal is opened anywhere in the browser, and "declared" is the honest
+label for what happens.
 
 ## Verifying it yourself
 
@@ -119,6 +135,9 @@ A *different* transaction was mined and is committed under `chain-probe/`: a v4
 Sapling transaction that `zcashd 6.20.0` mined into regtest block 111, carrying a
 packed 512-byte Veilo bid as its memo. `crates/veilo-core/tests/chain_probe.rs`
 parses it and the auditor recovers the envelope with only the published viewing
-key, then verifies the commitment and opens the sealed refund address. That
-closes the "will a node accept and mint the envelope" question and leaves "does
-it work on a public network" open (see `ops/README.md` and the top-level README).
+key, then verifies the commitment and opens the sealed refund address. Note that
+the probe's seal is opened with a test refund key that the example prints, so this
+tests the seal *codec*; it is not the third-party verification a seller-exclusion
+proof would need. The probe closes the "will a node accept and mint the envelope"
+question and leaves "does it work on a public network" open (see `ops/README.md`
+and the top-level README).
