@@ -69,8 +69,10 @@ HARD GROUND-TRUTH FACTS (do not contradict these):
 VEILO-SPECIFIC INVARIANTS (any change must preserve these):
 - I1: no party can read any bid before `H_end`. There is deliberately **no bid-decryption key**.
 - I2: winner and clearing price are recomputable by anyone from public chain data.
-- I3: the auctioneer cannot exclude a bid without publishing a proof that its refund address is
-  the seller's own.
+- I3: the auctioneer cannot quietly exclude a bid. Exclusions follow the seller key named in the
+  auction document and are labelled *declared*, not proven: a public proof would require
+  publishing `SK_refund`, which exposes every bidder's refund address and breaks I4. Per-bid
+  derived refund keys are the specified fix.
 - I4: no bidder's refund address is ever published, the winner's included.
 - I5: every collateral zatoshi is returned or paid out to a provable destination in one tx.
 - I6: a bid is bound to the chain by `nExpiryHeight`, and the bid set is recomputable by anyone

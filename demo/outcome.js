@@ -23,7 +23,7 @@ export const ZEC = 100_000_000;
 /** Machine key -> display label. Keys are stable; labels are copy. */
 export const STATUS = /** @type {const} */ ({
   noReveal: "no valid reveal",
-  seller: "seller — excluded",
+  seller: "seller — declared",
   underCollateralised: "under-collateralised",
   belowReserve: "below reserve",
   eligible: "eligible",
@@ -160,6 +160,39 @@ function compareRows(a, b) {
     return a.noteIndex - b.noteIndex;
   }
   return a.position - b.position;
+}
+
+/**
+ * Apply the auction document's declared seller key.
+ *
+ * This is deliberately not called a proof. It marks the bid whose ephemeral key
+ * the auction document names as the seller's. A public proof would require
+ * opening the bid's sealed refund address, and the auditor does not hold the key
+ * that opens it: the auction's refund secret belongs to the auctioneer, and
+ * publishing it would expose every bidder's refund address, not just the
+ * excluded one. The page says so in words; this function exists so the rule is
+ * one tested function rather than two inline comparisons.
+ *
+ * @param {BidRow[]} rows
+ * @param {string | null | undefined} declaredEpk 64 hex characters, or null
+ * @returns {{rows: BidRow[], excludedCount: number, declared: string | null,
+ *            basis: "auction-document"}}
+ */
+export function applyDeclaredSellerExclusion(rows, declaredEpk) {
+  const declared = declaredEpk ?? null;
+  if (declared !== null && !/^[0-9a-f]{64}$/i.test(declared)) {
+    throw new TypeError("declared seller key must be 64 hex characters");
+  }
+  const key = declared === null ? null : declared.toLowerCase();
+
+  let excludedCount = 0;
+  const marked = rows.map((row) => {
+    const isSeller = key !== null && row.epk_bid.toLowerCase() === key;
+    if (isSeller) excludedCount++;
+    return { ...row, isSeller };
+  });
+
+  return { rows: marked, excludedCount, declared: key, basis: "auction-document" };
 }
 
 /**

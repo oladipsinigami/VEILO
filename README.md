@@ -50,9 +50,10 @@ Alice is selling a laptop. Reserve 50 ZEC, deadline Friday.
 5. **Anyone verifies.** Load the auditor in a browser, give it the block range
    and Alice's viewing key. It sweeps every output, trial-decrypts what it can,
    checks each reveal against its commitment, rejects bids without sufficient
-   collateral, excludes the seller's own bid, and applies second-price.
+   collateral, excludes the bid the auction document declares to be the seller's,
+   and applies second-price.
 
-   > Seller excluded: Alice's 65 ZEC disappears.
+   > Seller declared and excluded: Alice's 65 ZEC disappears.
    > Survivors: Bob 70, Carol 60, David 45.
    > **Winner: Bob. Clearing price: 60 ZEC.**
 
@@ -81,7 +82,7 @@ Expected:
 ```
 1010101010  bid  7000000000 zat  collateral  7000000000 zat  eligible      ← winner
 1111111111  bid  6000000000 zat  collateral  6000000000 zat  eligible
-1212121212  bid  6500000000 zat  collateral  6500000000 zat  seller — excluded
+1212121212  bid  6500000000 zat  collateral  6500000000 zat  seller — declared
 1313131313  bid  4500000000 zat  collateral  4500000000 zat  below reserve
 1414141414  bid  5500000000 zat  collateral  2000000000 zat  under-collateralised
 
@@ -92,6 +93,14 @@ The third row is the one that matters. **The seller bid 65 ZEC — the
 second-highest bid in the auction — and is excluded.** Without that rule the
 clearing price would be 65 instead of 60. The demo is built so the anti-rig is
 visible rather than asserted.
+
+"Declared" is deliberate wording, and it is the one place where this build is
+weaker than it first claimed. The page marks the bid whose key the auction
+document names as the seller's; it does not prove that the bid belongs to the
+seller. Limitation 7 explains why, and what a real proof would need.
+
+The exclusion is not hardcoded: `npm run demo:audit` re-runs the pipeline with
+the declaration removed and fails unless exactly zero bids are excluded.
 
 You can verify the demo yourself:
 
@@ -126,7 +135,7 @@ Everything below is implemented and covered by tests that run in CI.
 | BLAKE2b bid commitment + 40-byte reveal | done |
 | X25519-sealed refund address, open/close | done |
 | Vickrey pricing, reserve, deterministic tie-break | done |
-| Seller exclusion with checkable proof | done |
+| Seller exclusion, from the auction document's declared key | done — declared, not proven (limitation 7) |
 | Batched settlement **plan** (accounting, invariants) | done, unit-tested |
 | ZIP-321 URI builder/parser | done |
 | **Sapling trial-decryption of a real `encCiphertext`** | done |
@@ -237,6 +246,30 @@ We would rather a judge find these by reading than by asking.
 6. **Zero headroom in the memo.** `MemoBytes` is a `Box<[u8; 512]>`; longer is
    rejected at consensus. Our envelope uses the entire field, so adding any field
    later is a breaking change, not a patch.
+7. **Seller exclusion is declared, not proven.** This is the sharpest gap in the
+   build, and earlier revisions of this README and the blueprint overstated it.
+   The rule is right — a seller's bid must not set the price — but the *public
+   proof* we described is not implementable with the data an auditor has.
+   Opening a bid's sealed refund address (I4) needs `SK_refund`. Only the
+   auctioneer holds it, and publishing it would open *every* bidder's refund
+   address, not just the excluded bid's, which is exactly what I4 exists to
+   prevent. Asking a seller to volunteer its own `esk_refund` fares no better:
+   a seller shilling to inflate the price has no reason to cooperate.
+
+   So the browser auditor marks the bid whose `epk_bid` the auction document
+   names as the seller's, and reports that the price depends on the declaration
+   being true. `apply_seller_exclusion` in `veilo-core` still opens the seal, but
+   its opener is a function the caller supplies — that is a trust boundary, not
+   third-party verification.
+
+   The honest fix is per-bid derived refund keys. The auctioneer publishes
+   `PK_refund`; each bidder seals to
+   `PK_i = PK_refund + H("VEILO-REFUND-V1" ‖ bid_commit)·G`; at audit the
+   auctioneer publishes `SK_i = SK_refund + H(...)` for the bids it excludes, and
+   anyone checks `SK_i·G == PK_i` before opening. That reveals one excluded
+   bid's refund address and no one else's. It is a protocol change plus a new
+   `c_refund` in the fixture, so it is not implemented here. The demo fixture's
+   `c_refund` bytes are filler, and no seal is opened anywhere in the browser.
 
 ---
 
@@ -273,7 +306,7 @@ TypeScript cannot construct real shielded transactions anyway (that needs
 | :--- | :--- | :--- |
 | I1 | A bid is unreadable before the deadline by anyone | no bid-decryption key exists; commitment is one-way |
 | I2 | A bidder must collateralise their bid | `classify_bid`, `value >= bid_zat` |
-| I3 | The seller's own bids never set the price | `apply_seller_exclusion`, proof published |
+| I3 | The seller's own bids never set the price | `apply_seller_exclusion`, given the sealed-refund opening; the browser applies the auction document's declaration |
 | I4 | The clearing price is reproducible by anyone | `compute_auction_result`, WASM auditor |
 | I5 | Every zatoshi is accounted for at settlement | `build_settlement_plan` conservation check |
 | I6 | Reveals cannot be changed after the deadline | `verify_reveal` recomputes the BLAKE2b commitment |

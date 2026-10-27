@@ -93,7 +93,7 @@
 <body>
 <main>
   <h1>Veilo — independent auction audit</h1>
-  <p class="claim">Check an auction result without trusting the seller.</p>
+  <p class="claim">Recompute an auction result from published ciphertexts, in your browser.</p>
   <p class="lede">
     Ten shielded outputs were published: five sealed bids and five decoys
     belonging to other addresses. This page decrypts all ten with the seller's
@@ -162,7 +162,8 @@ import init, {
 // It used to be copied into this page, which is how the page drifted from the
 // reference without any test noticing.
 import {
-  ZEC, hexToBytes, packRecords, decodeReveal, resolveOutcome,
+  ZEC, hexToBytes, packRecords, decodeReveal,
+  applyDeclaredSellerExclusion, resolveOutcome,
 } from "./outcome.js";
 
 const $ = (id) => document.getElementById(id);
@@ -195,7 +196,6 @@ async function audit() {
   const bids = JSON.parse(await audit_range(ivk, buf));
   const ms = Math.round(performance.now() - t0);
 
-  const sellerEpk = fx.seller_epk_bid;
   const reveals = fx.reveals.map((r) => decodeReveal(r, fx.auction_id)).filter(Boolean);
 
   const rows = bids.map((b) => {
@@ -220,16 +220,18 @@ async function audit() {
       // resolveOutcome refuses an amount that is not an exact integer, so the
       // string from verify_reveal is only narrowed here.
       bidZat: matched ? Number(matched.zat) : null,
-      isSeller: b.epk_bid === sellerEpk,
     };
   });
 
-  const outcome = resolveOutcome(rows, { reserveZat: fx.reserve_zat });
+  // The auction document names the seller's bidder key. That is a declaration,
+  // not a proof, so the outcome carries the basis and the page says it plainly.
+  const exclusion = applyDeclaredSellerExclusion(rows, fx.seller_epk_bid);
+  const outcome = resolveOutcome(exclusion.rows, { reserveZat: fx.reserve_zat });
 
-  return { fx, ...outcome, ms, swept: buf.length };
+  return { fx, ...outcome, exclusion, ms, swept: buf.length };
 }
 
-function render({ fx, rows, winner, clearingPriceZat, topTie, ms, swept }) {
+function render({ fx, rows, winner, clearingPriceZat, topTie, exclusion, ms, swept }) {
   const exp = fx.expected;
   // A price comparison, not a winner comparison: the fixture's expected winner
   // is prose ("Bob") and cannot be checked against an opaque bidder key.
@@ -256,6 +258,21 @@ function render({ fx, rows, winner, clearingPriceZat, topTie, ms, swept }) {
       ciphertexts or it does not. It checks the price only; the fixture's expected
       winner is prose, so that half cannot be compared mechanically.
     </p>
+
+    ${exclusion.declared ? `
+    <div class="note">
+      <strong>Seller exclusion is declared, not proven.</strong>
+      The auction document names bidder key
+      <code>${short(exclusion.declared, 12)}</code> as the seller's${exclusion.excludedCount > 0
+        ? `, and this page excludes the ${exclusion.excludedCount} recovered bid that uses it`
+        : ", but no recovered bid uses it"}.
+      It does not open that bid's sealed refund address, so it cannot show the bid
+      belongs to the seller: the auditor does not hold the refund secret, and
+      publishing that secret would expose every bidder's refund address, not just
+      this one. The price above therefore depends on the declaration being
+      correct.
+      <a href="https://github.com/oladipsinigami/VEILO#known-limitations">Why, and what a real proof needs</a>.
+    </div>` : ""}
 
     ${topTie ? `
     <div class="note">

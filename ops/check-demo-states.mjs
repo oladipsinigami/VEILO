@@ -109,6 +109,19 @@ try {
   check("status is a live region", await page.locator("#status").getAttribute("aria-live") === "polite");
 
   check("provenance note explains the match", await page.locator("#out .provenance").count() === 1);
+
+  // The honesty note is load-bearing: it is the only place the page admits the
+  // exclusion is declared rather than proven. If it disappears, this fails.
+  const disclosure = await page.locator("#out .note").first().innerText();
+  check("seller exclusion is disclosed as declared",
+    /declared, not proven/i.test(disclosure), disclosure.slice(0, 80));
+  check("disclosure names the dependency",
+    /depends on the declaration/i.test(disclosure));
+  const sellerStatus = await page.$$eval("#out tbody tr", (rows) =>
+    rows.map((r) => r.lastElementChild.previousElementSibling?.textContent.trim() ?? "")
+      .find((t) => t.startsWith("seller")) ?? "");
+  check("seller row is labelled declared", sellerStatus === "seller — declared", sellerStatus);
+
   check("three next-step links", await page.locator(".next a").count() === 3);
   check("next-step links leave the page usefully", await page.$$eval(".next a", (as) =>
     as.every((a) => a.href.startsWith("https://github.com/"))));

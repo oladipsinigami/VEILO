@@ -170,9 +170,11 @@ fn main() {
     ];
 
     let mut records: Vec<String> = Vec::new();
-    // The seller publishes which ephemeral key is theirs, so an auditor can
-    // exclude their bids without trusting a label. That is the anchor for the
-    // seller-exclusion rule.
+    // The auction document names which ephemeral key is the seller's. This is a
+    // *declaration*, not a proof: the page excludes that key and says the price
+    // depends on the declaration. Opening the matching `c_refund` would need the
+    // auction's refund secret, which cannot be published without exposing every
+    // other bidder's refund address. See README limitation 7.
     let mut seller_epk_bid: Option<String> = None;
     let mut reveals: Vec<String> = Vec::new();
     let mut notes: Vec<String> = Vec::new();
@@ -181,6 +183,9 @@ fn main() {
         // Each bidder's ephemeral keys are distinct, as they would be in reality.
         let epk_bid = [0x10 + i as u8; 32];
         let epk_refund = [0x20 + i as u8; 32];
+        // Filler, not a real seal. Nothing in the browser opens this field, and a
+        // real c_refund would not open without SK_refund. It exists so the memo
+        // layout matches the spec byte for byte.
         let c_refund = [0x30 + i as u8; 232];
 
         let bid_commit = compute_bid_commit(&AUCTION_ID, p.bid_zat, &p.nonce, &epk_bid)
