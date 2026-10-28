@@ -133,8 +133,22 @@ test("a short memo is zero-padded to 512 on parse, per ZIP-321", () => {
   assert.equal(parsed.memo.length, MEMO_SIZE);
 });
 
-test("rejects Sprout addresses and malformed addresses", () => {
-  assert.throws(() => buildZip321({ address: "zs1abc" }), /Sprout/);
+test("rejects Sprout addresses, which ZIP-321 forbids as a target", () => {
+  // Sprout is Base58Check: "zc" on mainnet, "zt" on testnet and regtest.
+  assert.throws(() => buildZip321({ address: "zc1abc" }), /Sprout/);
+  assert.throws(() => buildZip321({ address: "zt1abc" }), /Sprout/);
+  assert.throws(() => parseZip321("zcash:zc1abc?amount=1"), /Sprout/);
+
+  // Sapling must not be caught by the Sprout rule. "ztestsapling" also starts
+  // with "zt", and this is the regression that the old prefix check caused.
+  for (const sapling of ["zs1abc", "ztestsapling1abc", "zregtestsapling1abc"]) {
+    assert.equal(
+      buildZip321({ address: sapling }).startsWith(`zcash:${sapling}`),
+      true,
+      `${sapling} is Sapling and must be accepted`
+    );
+  }
+
   assert.throws(() => buildZip321({ address: "has spaces" }), Zip321Error);
   assert.throws(() => buildZip321({ address: "" }), Zip321Error);
 });
