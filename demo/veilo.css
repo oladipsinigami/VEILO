@@ -81,3 +81,62 @@
   .next { margin: 0; padding-left: 1.1rem; }
   .next li { margin: .3rem 0; }
   .next .dim { font-size: .86rem; }
+
+  /* -------------------------------------------------------------------------
+     Bid page: forms and machine-readable output. Same tokens as the audit
+     page, so the two halves of the flow look like one product.
+     ------------------------------------------------------------------------- */
+  .crumbs { margin: 0 0 1rem; font-size: .86rem; }
+  .crumbs a { color: var(--dim); text-decoration: none; }
+  .crumbs a:hover { color: var(--accent); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: .85rem; }
+  .field { display: flex; flex-direction: column; gap: .3rem; font-size: .76rem;
+           text-transform: uppercase; letter-spacing: .05em; color: var(--dim); }
+  .field.wide { grid-column: 1 / -1; }
+  .field input, .field textarea { font: inherit; font-size: 1rem; letter-spacing: 0; text-transform: none;
+                 color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+                 border-radius: var(--radius-sm); padding: .55rem .65rem; }
+  .field textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                    font-size: .8rem; line-height: 1.5; min-height: 6.5rem; resize: vertical; }
+  .field input:focus-visible, .field textarea:focus-visible {
+                 outline: 2px solid var(--accent); outline-offset: 1px; }
+  /* The browser's stock file button is a light box on a dark form; style it to
+     match the other controls instead of leaving one foreign element. */
+  .field input[type="file"] { padding: .4rem .5rem; color: var(--dim); font-size: .88rem; }
+  .field input[type="file"]::file-selector-button {
+                 font: inherit; font-size: .82rem; font-weight: 600; margin-right: .6rem;
+                 color: var(--accent); background: transparent; cursor: pointer;
+                 border: 1px solid var(--line); border-radius: var(--radius-sm);
+                 padding: .35rem .7rem; }
+  .field input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
+  .hint { color: var(--dim); font-size: .84rem; margin: .8rem 0 1rem; max-width: 46rem; }
+  .actions { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
+  button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+  button.secondary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .copy-row { display: flex; gap: .5rem; align-items: flex-start; margin: .4rem 0 .25rem; }
+  .copy-row > * { min-width: 0; }
+  .uri, .reveal { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                  font-size: .78rem; line-height: 1.5; color: var(--ink); background: var(--bg);
+                  border: 1px solid var(--line); border-radius: var(--radius-sm); padding: .55rem .65rem; }
+  .uri { min-height: 5.5rem; resize: vertical; }
+  .reveal { min-height: 3rem; }
+  .hexblock { overflow-x: auto; background: var(--bg); border: 1px solid var(--line);
+              border-radius: var(--radius-sm); padding: .6rem .7rem; margin: .4rem 0 0;
+              font-size: .74rem; line-height: 1.5; }
+  .result-title { font-size: 1rem; font-weight: 650; margin: 0 0 .35rem; }
+  .result-title.ok { color: var(--ok); }
+  .steps { margin: .8rem 0 0; padding-left: 1.1rem; }
+  .steps li { margin: .35rem 0; }
+  .steps .dim { font-size: .86rem; }
+  hr.rule { border: 0; border-top: 1px solid var(--line); margin: 1.5rem 0; }
+
+  /* An id or a commitment inside a stat tile: the large .v size is for amounts,
+     not 32 hex characters, which would overflow the tile. */
+  .stat .v.hex { font-size: .8rem; font-weight: 500; word-break: break-all; }
+
+  /* 32 hex characters need two columns; single-column phones keep span 1. */
+  @media (min-width: 48rem) { .stat.span2 { grid-column: span 2; } }
+  .hint-tight { margin: .2rem 0 .9rem; }
+
