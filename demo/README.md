@@ -1,10 +1,16 @@
-# Veilo demo — independent auction audit
+# Veilo demo — seal a bid, then audit the result
 
-Open `index.html` over HTTP and press **Run the audit**.
+The demo is two static pages served from the same directory:
+
+| Page | Who it is for | What it does |
+| :--- | :--- | :--- |
+| `index.html` | the auditor | recomputes the clearing price from chain outputs |
+| `bid.html` | the bidder | seals a bid in the browser, then publishes its reveal |
 
 ```bash
 python3 -m http.server --directory demo 8000
-# then visit http://localhost:8000
+# then visit http://localhost:8000            (audit)
+#        or http://localhost:8000/bid.html     (bid)
 ```
 
 It must be served over HTTP, not opened as a `file://` URL — ES modules and
@@ -53,6 +59,71 @@ declaration removed and must then exclude nobody. What the page cannot check is
 whether that key genuinely belongs to the seller. `c_refund` in the fixture is
 filler, no seal is opened anywhere in the browser, and "declared" is the honest
 label for what happens.
+
+## Sealing a bid (`bid.html`)
+
+The audit page proves the result. This page produces the input it audits.
+
+1. **Fill in three fields.** The bid is the number that stays secret. The
+   collateral is what you actually send to escrow; it must be at least the bid,
+   because the winner pays the clearing price out of it.
+2. **Seal.** The page packs the commitment, your X25519-sealed refund address
+   and the auction id into a 512-byte memo, and wraps that in a `zcash:` payment
+   request whose `amount` is the collateral. All of it happens in the tab. After
+   the page loads it makes **no network requests at all** — a check in CI fails
+   if one ever appears.
+3. **Save the ticket first.** The downloaded JSON holds the nonce that opens
+   your commitment. It is never put in `localStorage`, a cookie, or the page
+   again. Lose it and the bid is unreadable forever — by you, by the auctioneer,
+   by anyone. That is the sealed property working, not a bug.
+4. **Send the payment request.** This needs a wallet that carries a 512-byte
+   binary memo. Most do not; node tooling (`z_sendmany`) does. The demo stops
+   here — there is no broadcast.
+5. **After the deadline, publish the reveal.** Step 2 of the page reads the
+   ticket back, re-checks it against its own commitment, and prints the 40 hex
+   bytes to post. Publishing is permissionless: anyone may post it, and the
+   auditor matches it against the commitment already on chain.
+
+### The bundled practice auction
+
+`auction.json` is a practice auction, not a live one:
+
+- its **escrow address** is the regtest address from `chain-probe/`, which is
+  inert on every real network — sending ZEC to it on mainnet burns them;
+- its **refund key** is derived from 32 bytes of `0x55` and that secret is
+  published here so tests can open the seal. **Any refund address you type into
+  the practice page is readable by anyone.** The page says so above the form. A
+  real auction publishes `pk_refund` and nothing else.
+
+### How the page is built
+
+| File | Role |
+| :--- | :--- |
+| `web/src/lib/bid.ts` | validation, sealing, payment request, ticket, reveal |
+| `web/src/lib/bid-entry.ts` | the only surface the page may import |
+| `demo/bid/app.js` | committed esbuild bundle of the above |
+| `demo/bid/page.js` | DOM only: no crypto, no secrets |
+| `ops/build-bid.mjs` | rebuilds the bundle; `--check` fails on drift |
+| `ops/check-bid-states.mjs` | drives the page in Chrome |
+
+The bundle is committed for the same reason `demo/pkg` is: the page has to run
+as static files, and the crypto imports bare `@noble/*` specifiers that browsers
+cannot resolve. `npm run bid:check` is what keeps that honest — edit `memo.ts`,
+forget to rebuild, and CI fails instead of shipping a page whose sealing code no
+longer matches the audited reference.
+
+```bash
+npm run bid:build     # regenerate demo/bid/app.js
+npm run bid:check     # fail if the committed bundle is stale
+npm run bid:states    # drive the page in Chrome
+```
+
+`bid:states` checks the parts arithmetic cannot: the auction banner, a sealed
+bid producing 1024 hex characters of memo and a `zcash:` request for the right
+amount, the ticket downloading and re-opening into 80 hex characters of reveal,
+the two refusals a bidder is most likely to hit (collateral below the bid, and
+an edited ticket) explaining themselves in plain words, zero requests after
+load, no sideways scroll at 375px, and a visible focus ring.
 
 ## Verifying it yourself
 
