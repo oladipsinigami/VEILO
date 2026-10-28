@@ -79,6 +79,13 @@ jobs:
       - name: typecheck
         run: npx tsc --noEmit
 
+      # The bid page imports a committed esbuild bundle, the same policy as the
+      # committed wasm in demo/pkg. This is the check that makes the policy
+      # safe: edit memo.ts, forget to rebuild, and the page would ship sealing
+      # code that no longer matches the audited reference.
+      - name: the committed bid bundle matches its source
+        run: npm run bid:check
+
       - name: generate cross-implementation vectors
         run: |
           node --experimental-strip-types test/gen-vectors.mjs
@@ -248,6 +255,9 @@ jobs:
 
       - name: the page's states, in Chrome
         run: npm run demo:states
+
+      - name: the bid page, in Chrome
+        run: npm run bid:states
 
       - name: the audit arithmetic, in Node
         run: npm run demo:audit
