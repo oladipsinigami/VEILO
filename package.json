@@ -9,6 +9,9 @@
     "typecheck": "tsc --noEmit",
     "demo:audit": "node ops/verify-demo.mjs",
     "demo:states": "node ops/check-demo-states.mjs",
+    "bid:build": "node ops/build-bid.mjs",
+    "bid:check": "node ops/build-bid.mjs --check",
+    "bid:states": "node ops/check-bid-states.mjs",
     "demo:video": "node ops/record-demo.mjs",
     "demo:video:mp4": "node ops/webm-to-mp4.mjs"
   },
@@ -19,6 +22,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
+    "esbuild": "0.25.0",
     "playwright-core": "^1.64.1",
     "typescript": "^5.9.3"
   }

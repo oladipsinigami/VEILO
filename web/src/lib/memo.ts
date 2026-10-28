@@ -46,7 +46,7 @@ export const ZERO_PUBKEY = new Uint8Array(32);
 
 /** Sealed refund address field: 216 B padded plaintext + 16 B Poly1305 tag. */
 export const C_REFUND_SIZE = 232;
-const REFUND_PLAINTEXT_MAX = C_REFUND_SIZE - 16; // 216
+export const REFUND_PLAINTEXT_MAX = C_REFUND_SIZE - 16; // 216
 
 /** First byte of the deterministic zero-padding region. */
 export const C_REFUND_END = 5 + 16 + 32 + 32 + 32 + C_REFUND_SIZE; // 349

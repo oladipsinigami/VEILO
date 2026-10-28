@@ -143,13 +143,30 @@ function encodeQchar(s: string): string {
 // Build
 // ---------------------------------------------------------------------------
 
+/**
+ * True for a Sprout address, which ZIP-321 forbids as a payment target.
+ *
+ * Prefixes come from zcash `chainparams.cpp`: Sprout is Base58Check with a
+ * "guarantees the first 2 characters" comment — `zc` on mainnet, `zt` on
+ * testnet and regtest. Sapling is bech32 with HRP `zs` / `ztestsapling` /
+ * `zregtestsapling`, so the testnet Sapling prefix also starts with `zt` and
+ * must not be mistaken for Sprout.
+ *
+ * Earlier revisions of this file tested for `zs`, which is Sapling: it rejected
+ * legitimate shielded addresses and let Sprout through.
+ */
+export function isSproutAddress(address: string): boolean {
+  if (address.startsWith("zc")) return true;
+  return address.startsWith("zt") && !address.startsWith("ztestsapling");
+}
+
 export function buildZip321(params: Zip321Params): string {
   const { address, amountZec, memo, label, message, expires } = params;
 
   if (!/^[A-Za-z0-9]+$/.test(address)) {
     throw new Zip321Error("address must match zcashaddress = 1*( ALPHA / DIGIT )");
   }
-  if (address.startsWith("zs") && !address.startsWith("zshield")) {
+  if (isSproutAddress(address)) {
     throw new Zip321Error("Sprout addresses MUST NOT be used in payment requests");
   }
   if (memo && memo.length !== MEMO_SIZE) {
@@ -197,6 +214,9 @@ export function parseZip321(uri: string): ParsedZip321 {
   const address = q === -1 ? rest : rest.slice(0, q);
   if (!/^[A-Za-z0-9]+$/.test(address)) {
     throw new Zip321Error("URI must contain an address in the hier-part");
+  }
+  if (isSproutAddress(address)) {
+    throw new Zip321Error("Sprout addresses MUST NOT be used in payment requests");
   }
 
   const out: ParsedZip321 = { address };

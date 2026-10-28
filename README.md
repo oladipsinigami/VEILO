@@ -71,11 +71,18 @@ take her word for it. Here you check it yourself.
 ```bash
 python3 -m http.server --directory demo 8000
 # open http://localhost:8000 and press "Run the audit"
+# or   http://localhost:8000/bid.html to seal a bid first
 ```
 
 The browser loads a WebAssembly module, sweeps ten outputs, recovers five bids
 and prints the clearing price. **No server, no network calls, no account** — the
 audit runs entirely on your machine.
+
+The second page is the bidder's half. It takes a bid amount, a collateral and a
+refund address, and returns a `zcash:` payment request with a 512-byte sealed
+memo plus a reveal ticket to save. It makes no network request after it loads,
+and the ticket exists only as a downloaded file — lose it and the bid can never
+be opened, by anyone. `demo/README.md` explains both pages.
 
 Expected:
 
@@ -107,6 +114,7 @@ You can verify the demo yourself:
 ```bash
 npm run demo:audit         # run the page's exact pipeline under Node
 bash ops/verify-demo.sh    # same thing, plus a bundle-presence check
+npm run bid:states         # drive the bid page in Chrome
 ```
 
 `npm run demo:audit` reads the **committed** `demo/pkg` bundle — the bytes the
@@ -138,6 +146,8 @@ Everything below is implemented and covered by tests that run in CI.
 | Seller exclusion, from the auction document's declared key | done — declared, not proven (limitation 7) |
 | Batched settlement **plan** (accounting, invariants) | done, unit-tested |
 | ZIP-321 URI builder/parser | done |
+| Bid construction: seal, payment request, reveal ticket | done, 19 unit tests |
+| **Bidder page: seal a bid and publish its reveal in the browser** | done, `demo/bid.html` |
 | **Sapling trial-decryption of a real `encCiphertext`** | done |
 | **The auditor reads a node-mined transaction** | done, regtest artefact in `demo/chain-probe/` |
 | **Block-range sweep keeping only escrow bids** | done |
@@ -154,8 +164,8 @@ Test totals, all run in CI:
 | `veilo-core` demo fixture, end to end (`tests/demo_audit.rs`) | 2 |
 | `veilo-core` node-mined transaction (`tests/chain_probe.rs`) | 1 |
 | `veilo-wasm` exports | 10 |
-| TypeScript (`test/*.test.js`, incl. 17 for the demo pricing rule) | 73 |
-| **total** | **124** |
+| TypeScript (`test/*.test.js`, incl. 22 for the demo pricing rule) | 97 |
+| **total** | **148** |
 
 CI also runs `cargo clippy -- -D warnings`, `cargo fmt --check`, and the
 `wasm32-unknown-unknown` build.
@@ -215,8 +225,9 @@ Stated plainly, because a judge should find these by reading.
    this must bypass `lightwalletd`: it serves 52-byte compact outputs, which
    contain no memo at all.
 
-4. **No bidder-facing UI.** There is the audit page. There is no bid composer, no
-   reveal publisher, no settlement inspector.
+4. **No settlement inspector.** The audit page and the bid page both exist. There
+   is no page that walks a settlement transaction and shows each bidder's refund,
+   and no live chain fetcher (limitation 3) for it to read.
 
 5. **Testnet is untested.** No public-network run yet. Testnet is currently
    Valar's NU7 fork, and most faucets are broken across the upgrade.
@@ -284,8 +295,11 @@ veilo/
 │   └── veilo-wasm/            wasm-bindgen exports: audit_range, verify_reveal
 ├── web/src/lib/               TypeScript reference implementation
 │   ├── memo.ts  auction.ts  zip321.ts
-├── demo/                      browser auditor + fixture (works today)
-│   ├── index.html  fixture.json  pkg/
+│   ├── bid.ts                 seal a bid, build the ticket, publish the reveal
+│   └── bid-entry.ts           the browser bundle's only entry point
+├── demo/                      two static pages + fixture (works today)
+│   ├── index.html  fixture.json  pkg/      audit page
+│   ├── bid.html  bid/  auction.json        bidder page + practice auction
 │   └── chain-probe/           raw tx mined by zcashd + its viewing key
 ├── test/                      cross-implementation vectors
 └── ops/                       node tooling, CI scripts, known blockers

@@ -1,0 +1,11 @@
+{
+  "name": "Veilo practice auction",
+  "auction_id": "7665696c6f2d70726163746963653121",
+  "auction_id_text": "veilo-practice1!",
+  "escrow_address": "zregtestsapling1hjah3xuapma7yjrd6xh7sgx885c3c370afjhne63f2wg0akrz5gnl4wvygupczk2f4s5x86hkyk",
+  "pk_refund": "38ab664bd86f77d7e66bdd9ae0792913a94fd8b33a1260027e4b46c1f4884c67",
+  "reserve_zat": 500000000,
+  "ends_at_height": 120,
+  "practice": true,
+  "note": "Practice auction, not a live one. The escrow address is the regtest address from demo/chain-probe, so it is inert on every real network: sending ZEC to it on mainnet burns them. The refund key is derived from 32 bytes of 0x55 and that secret is published in demo/README.md, so any refund address sealed here can be opened by anyone. A real auction publishes pk_refund only."
+}

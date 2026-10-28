@@ -1,0 +1,9 @@
+# Generated artefacts compared byte-for-byte must not have their line endings
+# rewritten by git. `ops/build-bid.mjs --check` compares the built bundle to the
+# committed one with Buffer.compare; with core.autocrlf=true a checkout turns its
+# two LFs into CRLFs, and the gate then fails on a tree that is actually correct.
+# CI runs on Linux and never saw this, which is exactly why it is written down.
+demo/bid/app.js -text
+
+# Keep this file itself LF, so its own rules cannot be mangled on checkout.
+.gitattributes -text

@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Veilo — seal a bid</title>
+<link rel="stylesheet" href="./veilo.css">
+<script type="module" src="./bid/page.js"></script>
+</head>
+<body>
+<main>
+  <p class="crumbs"><a href="./index.html">← Veilo auditor</a></p>
+
+  <h1>Seal a bid</h1>
+  <p class="lede">
+    A sealed-bid auction has two halves. This is the bidder's half: name a price,
+    lock collateral, and prove the price later. Until you reveal it, the chain
+    holds a commitment — a fingerprint with no number attached.
+  </p>
+
+  <h2>Step 1 — seal</h2>
+  <div id="auction-note">
+    <p class="dim">Loading the auction document…</p>
+  </div>
+
+  <form id="bid-form" class="spaced" novalidate>
+    <div class="grid">
+      <label class="field" for="bid">
+        Your bid (ZEC)
+        <input id="bid" name="bid" type="text" inputmode="decimal"
+               autocomplete="off" spellcheck="false" placeholder="60">
+      </label>
+
+      <label class="field" for="collateral">
+        Collateral to send (ZEC)
+        <input id="collateral" name="collateral" type="text" inputmode="decimal"
+               autocomplete="off" spellcheck="false" placeholder="60">
+      </label>
+
+      <label class="field wide" for="refund">
+        Refund address
+        <input id="refund" name="refund" type="text"
+               autocomplete="off" spellcheck="false"
+               placeholder="zregtestsapling1…">
+      </label>
+    </div>
+
+    <p class="hint">
+      The bid is what you are willing to pay, and it stays secret until you
+      reveal it. The collateral is what you actually send to escrow now: it must
+      be at least the bid, because the winner pays the clearing price out of it.
+      Whatever is left comes back to the refund address. This page has no server
+      and makes no network calls after it loads — the sealing happens in your
+      browser.
+    </p>
+
+    <div class="actions">
+      <button type="submit" id="seal" disabled>Seal this bid</button>
+      <span id="seal-status" class="dim status" role="status" aria-live="polite"></span>
+    </div>
+  </form>
+
+  <div id="out" class="spaced">
+    <div class="panel">
+      <p class="result-title">Nothing sealed yet</p>
+      <p class="dim">
+        Fill in the three fields above. You will get a payment request, a
+        512-byte memo, and a reveal ticket to save.
+      </p>
+    </div>
+  </div>
+
+  <hr class="rule">
+
+  <h2>Step 2 — publish your reveal</h2>
+  <p class="hint">
+    After the auction closes, open the ticket this page downloaded and turn it
+    back into the 40 bytes that open your commitment. Publishing is
+    permissionless: anyone can post it, and the auditor matches it against the
+    commitment already on chain. A bid nobody can open is not counted, even
+    though the collateral was sent.
+  </p>
+
+  <div class="grid">
+    <label class="field wide" for="ticket-file">
+      Your reveal ticket (the .json file this page saved)
+      <input id="ticket-file" type="file" accept="application/json,.json">
+    </label>
+
+    <label class="field wide" for="ticket-text">
+      …or paste the ticket's contents
+      <textarea id="ticket-text" spellcheck="false"
+                placeholder='{ "version": 1, "auction_id": "…" }'></textarea>
+    </label>
+  </div>
+
+  <div class="actions spaced">
+    <button type="button" id="publish">Read my reveal</button>
+    <span id="reveal-status" class="dim status" role="status" aria-live="polite"></span>
+  </div>
+
+  <div id="reveal-out" class="spaced"></div>
+
+  <p id="copy-status" class="dim spaced" role="status" aria-live="polite"></p>
+
+  <p class="provenance">
+    The sealing code is <code>web/src/lib/bid.ts</code>, bundled into
+    <code>bid/app.js</code> and checked into this repository so the page runs from
+    static files. The auditor that recomputes the clearing price is on the
+    <a href="./index.html">audit page</a>.
+  </p>
+</main>
+</body>
+</html>

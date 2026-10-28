@@ -1,0 +1,142 @@
+  :root {
+    --bg: #0d1117; --panel: #161b22; --line: #30363d;
+    --ink: #e6edf3; --dim: #8b949e;
+    --ok: #3fb950; --bad: #f85149; --warn: #d29922; --accent: #58a6ff;
+    --radius: 8px; --radius-sm: 6px; --radius-xs: 4px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 2rem 1.25rem 4rem; background: var(--bg); color: var(--ink);
+         font: 15px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 62rem; margin: 0 auto; }
+  a { color: var(--accent); }
+  h1 { font-size: 1.5rem; margin: 0 0 .25rem; letter-spacing: -.01em; }
+  h2 { font-size: .78rem; text-transform: uppercase; letter-spacing: .08em;
+       color: var(--dim); margin: 2rem 0 .75rem; }
+  .claim { font-size: 1.15rem; font-weight: 600; margin: 0 0 .5rem; }
+  p.lede { color: var(--dim); margin: 0 0 1.5rem; max-width: 46rem; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85em; }
+  .panel { background: var(--panel); border: 1px solid var(--line);
+           border-radius: var(--radius); padding: 1rem 1.15rem; }
+  button { background: var(--accent); color: #04121f; border: 0; border-radius: var(--radius-sm);
+           padding: .55rem 1rem; font-weight: 600; font-size: .9rem; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--line); }
+  th { color: var(--dim); font-weight: 600; font-size: .76rem;
+       text-transform: uppercase; letter-spacing: .05em; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* Wide tables scroll rather than break the layout on a phone. */
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table-scroll table { min-width: 34rem; }
+
+  .verdict { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .75rem; }
+  .stat { background: var(--panel); border: 1px solid var(--line);
+          border-radius: var(--radius); padding: .85rem 1rem; }
+  .stat .k { color: var(--dim); font-size: .7rem; text-transform: uppercase; letter-spacing: .07em; }
+  .stat .v { font-size: 1.3rem; font-weight: 650; margin-top: .15rem; }
+
+  /* One colour, one meaning: green = accepted, red = rejected as invalid,
+     yellow = rejected by a stated rule, grey = excluded by design.  */
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+  .neutral { color: var(--dim); }
+  .dim { color: var(--dim); }
+
+  .tag { display: inline-block; padding: .08rem .4rem; border-radius: var(--radius-xs);
+         font-size: .72rem; font-weight: 600; border: 1px solid currentColor; }
+  .tag-seller { margin-left: .4rem; }
+  .note { border-left: 3px solid var(--warn); padding: .6rem .9rem; background: #1c2128;
+          border-radius: 0 var(--radius-sm) var(--radius-sm) 0; color: var(--dim); font-size: .88rem; }
+  .note-tight { margin-top: .75rem; }
+  .hex { color: var(--dim); font-size: .78rem; }
+  .status { margin-left: .75rem; }
+  .of-total { font-size: .6em; }
+  .meta { margin: .2rem 0; }
+  .provenance { color: var(--dim); font-size: .84rem; margin: .75rem 0 0; max-width: 46rem; }
+  .provenance a { color: var(--dim); text-decoration: underline; }
+
+  .empty p { margin: .2rem 0; }
+  .empty .dim { font-size: .9rem; }
+
+  /* A panel that follows the button block needs a gap; named so no inline
+     style has to carry it. */
+  .spaced { margin-top: .75rem; }
+
+  /* Loading placeholder: four bars shaped roughly like the verdict grid. */
+  .skeleton .bar { background: #21262d; border-radius: var(--radius-xs); height: .9rem; }
+  .skeleton .bar + .bar { margin-top: .6rem; }
+  .skeleton .bar.w1 { width: 32%; } .skeleton .bar.w2 { width: 58%; }
+  .skeleton .bar.w3 { width: 44%; } .skeleton .bar.w4 { width: 70%; }
+
+  .error { border-color: var(--bad); }
+  .error h2 { margin: 0 0 .5rem; color: var(--bad); text-transform: none;
+              letter-spacing: 0; font-size: .95rem; }
+  .error p { margin: 0 0 .9rem; }
+  .error details { margin-top: .9rem; color: var(--dim); font-size: .84rem; }
+  .error summary { cursor: pointer; }
+  .error pre { white-space: pre-wrap; word-break: break-word; margin: .5rem 0 0; }
+  .error button { background: var(--accent); }
+
+  .next { margin: 0; padding-left: 1.1rem; }
+  .next li { margin: .3rem 0; }
+  .next .dim { font-size: .86rem; }
+
+  /* -------------------------------------------------------------------------
+     Bid page: forms and machine-readable output. Same tokens as the audit
+     page, so the two halves of the flow look like one product.
+     ------------------------------------------------------------------------- */
+  .crumbs { margin: 0 0 1rem; font-size: .86rem; }
+  .crumbs a { color: var(--dim); text-decoration: none; }
+  .crumbs a:hover { color: var(--accent); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: .85rem; }
+  .field { display: flex; flex-direction: column; gap: .3rem; font-size: .76rem;
+           text-transform: uppercase; letter-spacing: .05em; color: var(--dim); }
+  .field.wide { grid-column: 1 / -1; }
+  .field input, .field textarea { font: inherit; font-size: 1rem; letter-spacing: 0; text-transform: none;
+                 color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+                 border-radius: var(--radius-sm); padding: .55rem .65rem; }
+  .field textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                    font-size: .8rem; line-height: 1.5; min-height: 6.5rem; resize: vertical; }
+  .field input:focus-visible, .field textarea:focus-visible {
+                 outline: 2px solid var(--accent); outline-offset: 1px; }
+  /* The browser's stock file button is a light box on a dark form; style it to
+     match the other controls instead of leaving one foreign element. */
+  .field input[type="file"] { padding: .4rem .5rem; color: var(--dim); font-size: .88rem; }
+  .field input[type="file"]::file-selector-button {
+                 font: inherit; font-size: .82rem; font-weight: 600; margin-right: .6rem;
+                 color: var(--accent); background: transparent; cursor: pointer;
+                 border: 1px solid var(--line); border-radius: var(--radius-sm);
+                 padding: .35rem .7rem; }
+  .field input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
+  .hint { color: var(--dim); font-size: .84rem; margin: .8rem 0 1rem; max-width: 46rem; }
+  .actions { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
+  button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+  button.secondary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .copy-row { display: flex; gap: .5rem; align-items: flex-start; margin: .4rem 0 .25rem; }
+  .copy-row > * { min-width: 0; }
+  .uri, .reveal { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                  font-size: .78rem; line-height: 1.5; color: var(--ink); background: var(--bg);
+                  border: 1px solid var(--line); border-radius: var(--radius-sm); padding: .55rem .65rem; }
+  .uri { min-height: 5.5rem; resize: vertical; }
+  .reveal { min-height: 3rem; }
+  .hexblock { overflow-x: auto; background: var(--bg); border: 1px solid var(--line);
+              border-radius: var(--radius-sm); padding: .6rem .7rem; margin: .4rem 0 0;
+              font-size: .74rem; line-height: 1.5; }
+  .result-title { font-size: 1rem; font-weight: 650; margin: 0 0 .35rem; }
+  .result-title.ok { color: var(--ok); }
+  .steps { margin: .8rem 0 0; padding-left: 1.1rem; }
+  .steps li { margin: .35rem 0; }
+  .steps .dim { font-size: .86rem; }
+  hr.rule { border: 0; border-top: 1px solid var(--line); margin: 1.5rem 0; }
+
+  /* An id or a commitment inside a stat tile: the large .v size is for amounts,
+     not 32 hex characters, which would overflow the tile. */
+  .stat .v.hex { font-size: .8rem; font-weight: 500; word-break: break-all; }
+
+  /* 32 hex characters need two columns; single-column phones keep span 1. */
+  @media (min-width: 48rem) { .stat.span2 { grid-column: span 2; } }
+  .hint-tight { margin: .2rem 0 .9rem; }
+
