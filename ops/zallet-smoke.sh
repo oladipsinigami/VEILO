@@ -97,6 +97,27 @@ if [ ! -f "$HOME/.zallet/encryption-identity.txt" ]; then
   "$ZALLET_BIN" generate-encryption-identity
 fi
 
+# The rest of Zallet's documented setup order (book/src/guide/setup.md):
+# identity file, init-wallet-encryption, generate-mnemonic, then start. Skip the
+# middle two and the wallet has no root of spend authority, so account creation
+# fails with "Wallet does not contain any seeds to generate accounts with".
+#
+# These are one-shot commands: they take the data directory lock that `start`
+# holds, so they must run before it, and only on a wallet that does not exist
+# yet. The guard is the wallet database, not a marker file, so a rerun on a
+# half-built wallet still repairs it.
+if [ ! -f "$HOME/.zallet/wallet.db" ]; then
+  log "initializing wallet encryption (plain identity, regtest only)"
+  "$ZALLET_BIN" init-wallet-encryption
+
+  # Unconfirmed is fine here: keystore.require_backup defaults to false on
+  # regtest (matching zcashd's fRequireWalletBackup=false), so an unconfirmed
+  # phrase may still derive accounts. On mainnet this step would need
+  # `zallet confirm-backup`, which is interactive.
+  log "generating a throwaway mnemonic (regtest only)"
+  "$ZALLET_BIN" generate-mnemonic
+fi
+
 log "starting zallet (regtest, wallet rpc 28232)"
 "$ZALLET_BIN" start > ops/zallet.log 2>&1 &
 echo $! > "$DATA_DIR/zallet.pid"
@@ -118,14 +139,73 @@ if [ "${ZALLET_READY:-0}" != "1" ]; then
   exit 1
 fi
 
-log "zallet wallet getwalletinfo:"
-rpc 28232 '{"jsonrpc":"1.0","id":"veilo","method":"getwalletinfo","params":[]}' \
-  -u veilo:veilo-regtest-only
-echo
-log "zallet getnetwork:"
-rpc 28232 '{"jsonrpc":"1.0","id":"veilo","method":"getnetwork","params":[]}' \
+log "zallet wallet getwalletstatus:"
+rpc 28232 '{"jsonrpc":"1.0","id":"veilo","method":"getwalletstatus","params":[]}' \
   -u veilo:veilo-regtest-only
 echo
 
-log "MILESTONE 1 OK: zebrad and Zallet both up, Zallet serving RPC."
-echo "Address generation is the next step -- see ops/README.md."
+# --- the thing this job exists to prove ------------------------------------
+# "The RPC socket answers" is a weak signal: `getwalletinfo` is still a TODO in
+# beta.3 and answers -32601, and the readiness loop above accepts an error as
+# proof of life. An address is the first artefact the bid path needs, and
+# deriving one exercises the keystore, the wallet database and the chain
+# backend rather than just HTTP.
+#
+# `z_getnewaccount` then `z_getaddressforaccount` is Zallet's documented path
+# (book/src/guide/first-wallet.md). Names come from the accounts section of
+# book/src/rpc/methods.md.
+# `z_getnewaccount` refuses while the wallet has no synced chain tip ("Wallet
+# sync required", -8 InWarmup). On a fresh regtest node at height 0 that window
+# is short but real, so poll rather than race it. Any other error is a real
+# failure and comes out on the first iteration.
+log "creating an account"
+ACCOUNT=""
+ACCOUNT_UUID=""
+for i in $(seq 1 60); do
+  ACCOUNT=$(rpc 28232 '{"jsonrpc":"1.0","id":"veilo","method":"z_getnewaccount","params":["veilo"]}' \
+    -u veilo:veilo-regtest-only)
+  ACCOUNT_UUID=$(printf '%s' "$ACCOUNT" | python3 -c \
+    'import json,sys; print(json.load(sys.stdin)["result"]["account_uuid"])' 2>/dev/null || true)
+  [ -n "$ACCOUNT_UUID" ] && break
+  case "$ACCOUNT" in
+    *"Wallet sync required"*) sleep 1 ;;
+    *) break ;;
+  esac
+done
+echo "$ACCOUNT"
+
+if [ -z "${ACCOUNT_UUID:-}" ]; then
+  echo "z_getnewaccount returned no account_uuid. Response: $ACCOUNT" >&2
+  tail -40 ops/zallet.log >&2 || true
+  exit 1
+fi
+
+log "deriving a Unified Address for account $ACCOUNT_UUID"
+ADDRESS_RESP=$(rpc 28232 \
+  "{\"jsonrpc\":\"1.0\",\"id\":\"veilo\",\"method\":\"z_getaddressforaccount\",\"params\":[\"$ACCOUNT_UUID\"]}" \
+  -u veilo:veilo-regtest-only)
+echo "$ADDRESS_RESP"
+
+ADDRESS=$(printf '%s' "$ADDRESS_RESP" | python3 -c \
+  'import json,sys; print(json.load(sys.stdin)["result"]["address"])' 2>/dev/null || true)
+
+if [ -z "${ADDRESS:-}" ]; then
+  echo "z_getaddressforaccount returned no address. Response: $ADDRESS_RESP" >&2
+  tail -40 ops/zallet.log >&2 || true
+  exit 1
+fi
+
+# A regtest Unified Address starts with uregtest1 (ZIP-316 HRPs: u / utest /
+# uregtest). Anything else means the wallet picked the wrong network or
+# returned a transparent address, either of which invalidates the bid path.
+case "$ADDRESS" in
+  uregtest1*)
+    log "MILESTONE 2 OK: shielded Unified Address on regtest: $ADDRESS"
+    ;;
+  *)
+    echo "expected a regtest Unified Address (uregtest1...), got: $ADDRESS" >&2
+    exit 1
+    ;;
+esac
+
+echo "Next step: fund that address, then send a memo-bearing transaction."
