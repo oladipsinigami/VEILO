@@ -150,6 +150,7 @@ Everything below is implemented and covered by tests that run in CI.
 | **Bidder page: seal a bid and publish its reveal in the browser** | done, `demo/bid.html` |
 | **Sapling trial-decryption of a real `encCiphertext`** | done |
 | **The auditor reads a node-mined transaction** | done, regtest artefact in `demo/chain-probe/` |
+| **Zallet wallet on regtest: syncs, creates an account, derives a Unified Address** | done, `ops/zallet-smoke.sh` in CI |
 | **Block-range sweep keeping only escrow bids** | done |
 | **WASM browser auditor** | done, builds for `wasm32-unknown-unknown` |
 | Cross-implementation vectors (TypeScript generates, Rust replays, byte-identical) | done |
@@ -208,11 +209,12 @@ Stated plainly, because a judge should find these by reading.
 
    *Why not mainnet:* `zcashd` is end-of-life — every 6.20.0 binary shuts down
    permanently at block 3417100 (18 Jul 2026) and cannot support NU6.3. Its
-   replacement, `Zallet` v0.1.0-beta.3, pins `zebra-state 12.0.1` while current
-   `zebrad` writes format **v15**; even the nearest release (v6.3.0, Aug 10) is
-   v13. Zallet opens zebrad's RocksDB read-only, so the formats must match
-   exactly. This is an ecosystem gap, not something we can configure around. See
-   `ops/README.md`.
+   replacement, `Zallet` v0.1.0-beta.3, only runs against a zebrad whose on-disk
+   state format matches the `zebra-state` version it pins: **v6.2.3**, which
+   writes format 28. That pairing now runs in CI, on regtest, and derives a
+   `uregtest1…` Unified Address (`ops/zallet-smoke.sh`). What is missing for a
+   public network is no longer a version pairing — it is a funded wallet and an
+   actual broadcast. See `ops/README.md`.
 
 2. **Settlement is a plan, not a broadcast.** The accounting is implemented and
    unit-tested — every zatoshi accounted for, refunds derived, fee charged to the

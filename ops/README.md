@@ -139,62 +139,114 @@ Once funded, the auditor's input is real Zcash note ciphertexts produced by
 Step 4 is the one that needs a node, and it is the core novelty: a browser recomputing an
 auction outcome from raw chain ciphertexts.
 
-## Known limitation: zebrad cannot mine block 1 on regtest (zebra #8434)
+## The regtest stack, as it actually runs
 
-Verified on zebrad `c1f84f3ee92a577ebaeaf5753a5f3cf261428e8e` (7.0.0-rc.0).
+Verified in CI (run `40970316511`, 30 Oct 2026), end to end, on a fresh runner:
 
-The node boots, accepts the derived miner address, and serves RPC. **Mining
-block 1 does not work**, and it is not a config mistake. Three separate zebra
-behaviours all land on height 1:
+```
+zebrad v6.2.3 (7121c82), --features indexer,internal-miner
+  state format 28, database created
+  mined block 1
+zallet v0.1.0-beta.3
+  getwalletstatus: fully_synced_height 1, locked false
+  z_getnewaccount -> account uuid
+  z_getaddressforaccount -> uregtest1...
+```
 
-| Requirement | Why | Where |
+That is `ops/zallet-smoke.sh`, run by the `zallet + zebrad (regtest)` job. It is
+a real gate now: the job spent its whole life red under `continue-on-error`, and
+that flag is gone.
+
+### Why zebrad v6.2.3
+
+Zallet's `zebra` backend opens zebrad's RocksDB directory read-only, so the
+on-disk format has to match exactly. Zallet beta.3 asks for `zebra-state = "12"`
+and `zebra-rpc = "15"` (`backends/zebra/Cargo.toml`):
+
+| zebrad | zebra-state | format |
+| :--- | :--- | :--- |
+| `v6.2.3` (7121c82) | **12.0.1** | **28** |
+| `v6.3.0` | 13.0.0 | newer |
+| `v7.0.0` | 16.0.0 | newer |
+
+`zebra-state/src/constants.rs` at v6.2.3 declares
+`DATABASE_FORMAT_VERSION: u64 = 28`, which is the "v28" Zallet looks for. The
+commit is pinned rather than the tag, so a moved tag cannot change what CI
+builds.
+
+An earlier version of this file called the mismatch an ecosystem gap that would
+resolve itself. It was a mispaired version, and the pairing is readable from the
+manifests.
+
+### Block 1 on regtest: three constraints, one ordering
+
+zebrad's block-template path has three requirements that all land on height 1:
+
+| Requirement | Why | Failure if unmet |
 |---|---|---|
-| `Overwinter == 1` | the block-1 coinbase is signed with the v4 sighash | `zcash_primitives` `sighash_v4.rs:255` panics on pre-Overwinter |
-| `Heartwood == 1` | block 1 is the only block with no stored chain history root; `DefaultRoots::from_coinbase` substitutes the reserved root only when `Heartwood.activation_height == height` | `zebra-rpc/src/methods/types/default_roots.rs:70` panics with "history root is required for block templates" |
-| `Canopy == 1` | zebra cannot construct pre-Canopy coinbase transactions or block templates (open upstream issue) | `zebra-state` exits with "Zebra does not support generating pre-Canopy block templates" |
+| `Overwinter == 1` | the block-1 coinbase is signed with the v4 sighash | "Signature hashing for pre-overwinter transactions is not supported" |
+| `Heartwood == 1` | block 1 has no stored chain history root; `DefaultRoots::from_coinbase` substitutes the reserved root only at Heartwood's activation height | "history root is required for block templates" |
+| `Canopy == 1` | zebra will not template a pre-Canopy block | "Zebra does not support generating pre-Canopy block templates" |
 
-`Heartwood == 1` and `Canopy == 1` are mutually exclusive: activation heights
-are a `BTreeMap<Height, NetworkUpgrade>`, so two upgrades at one height collide
-and the later one silently overwrites the earlier. Each of the three panics was
-reproduced and fixed in turn before the next surfaced.
-
-**Consequence for Veilo:** zebrad is a node, not a wallet. It also returns
-`-32601 Method not found` for `z_getnewaddress`, `z_getbalance` and
-`z_sendmany`, so it could never fund a wallet, create a shielded address, or
-put a memo in a shielded output. A real end-to-end demo needs a wallet-capable
-node; `zcashd` is the next step. See VEILO_BLUEPRINT.md.
-
-## Known blocker: Zallet cannot read a current zebrad's state (Oct 14)
-
-The Zallet regtest stack is wired up end to end -- config, ports, gRPC
-read-state service, non-ephemeral state dir -- and stops at one wall:
+An earlier version of this file claimed `Heartwood == 1` and `Canopy == 1` were
+mutually exclusive because activation heights are a
+`BTreeMap<Height, NetworkUpgrade>` and one upgrade overwrites the other at the
+same height. The collision is real; the conclusion was wrong.
+`NetworkUpgrade::activation_height()` falls back to the **next** upgrade's
+height (`zebra-chain/src/parameters/network_upgrade.rs`), so with **Canopy last**
+among the height-1 entries:
 
 ```
-no zebra-state v28 database found under '/tmp/zebra-cache'
+{1: Canopy}  ->  Canopy   = 1
+                 Heartwood= 1   (falls back to Canopy)
+                 Blossom  = 1   (falls back to Heartwood)
+                 Sapling  = 1   (falls back to Blossom)
+                 Overwinter=1   (falls back to Sapling)
 ```
 
-Zallet `v0.1.0-beta.3` pins `zebra-state 12.0.1`. The zebrad we build writes
-state format **v15**:
+With Heartwood as the survivor instead, Canopy resolves to NU5's height and
+every template request is refused. The ordering is load-bearing, and it is the
+opposite of what it looks like.
 
-| zebrad | zebra-state |
-| :--- | :--- |
-| `c1f84f3` / `v7.0.0-rc.0` (Oct 2) | 15.0.0 |
-| `v6.4.2` (Sep 25) | 14.0.0 |
-| `v6.3.0` (Aug 10) | 13.0.0 |
-| Zallet beta.3 expects | **12.0.1** |
+### The wallet needs a block, not just a node
 
-Zallet opens zebrad's RocksDB directory read-only as a secondary instance, so
-the on-disk format has to match exactly. Even the zebrad release nearest to
-Zallet's own release date is a major version ahead of what Zallet expects.
+At height 0 the wallet cannot finish its first sync. `getwalletstatus` omits
+`fully_synced_height` when the wallet's birthday "has not yet been synced", the
+bootstrap account's birthday is block 0, and `z_getnewaccount` refuses while the
+wallet is locked:
 
-The format bumps roughly monthly, so this resolves itself when Zallet ships a
-release built against a newer `zebra-state`. The CI job is kept and still runs
-(`continue-on-error`), so it turns green the moment that happens.
+```
+{"code":-28,"message":"Wallet sync required"}
+```
 
-Alternatives if it does not:
+So the job mines exactly one block before starting Zallet. That is why the
+zebrad build includes `--features internal-miner`, why the run writes its own
+zebrad config with `[mining] internal_miner = true` and a real `miner_address`
+(the shared config deliberately omits one), and why the bootstrap account is
+created with `zallet regtest generate-account-and-miner-address` before either
+node starts. Its address is what the coinbase pays.
 
-* Pin zebrad to a pre-v6.3.0 commit whose state format is v12 -- trades NU7 and
-  current regtest support for compatibility.
-* Use Zallet's `zaino` backend instead of `zebra-state`. Zaino speaks JSON-RPC
-  and does not share a RocksDB directory, so the format coupling disappears,
-  at the cost of running a second node.
+### Zallet must be told the same consensus rules
+
+`[consensus] regtest_nuparams` defaults to empty, i.e. stock regtest heights.
+With custom heights on the zebra side, Zallet derives a different branch id and
+shuts down rather than guess:
+
+```
+The chain has reached height 1, where the backing full node's consensus rules
+diverge from what this zallet build can interpret.
+```
+
+`ops/zallet-regtest.toml` now lists all ten upgrades with their branch ids, at
+the same heights as `ops/zebrad-zallet-regtest.toml`. NU7 is excluded from both:
+zebra v6.2.3 still carries a placeholder branch id for it (`0xfffffffe`), so the
+zebra config parks it at height 1000, out of reach. Ironwood (NU6.3) still
+activates at 7.
+
+## Still not done
+
+* **No funds moved.** The derived address has never held ZEC; the coinbase from
+  block 1 needs 100 confirmations to mature, and no shielding or
+  memo-bearing send is attempted. That is the next milestone.
+* **No public network.** Everything above is regtest: no peers, no fee market,
+  and no proof that a public node accepts the envelope.
