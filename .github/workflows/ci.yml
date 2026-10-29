@@ -428,20 +428,26 @@ jobs:
   # it is the thing that proves the demo's core is real.
   # ---------------------------------------------------------------------------
   zallet:
-    name: zallet + zebrad (regtest, blocked)
+    name: zallet + zebrad (regtest)
     runs-on: ubuntu-24.04
     timeout-minutes: 25
-    # KNOWN BLOCKED, tracked rather than hidden.
+    # The two binaries are version-locked to each other, and neither "latest"
+    # side is the right answer.
     #
-    # Zallet v0.1.0-beta.3 pins zebra-state 12.0.1. Current zebrad writes
-    # state format v15, and the closest zebrad release (v6.3.0, Aug 10) is
-    # already v13. Zallet therefore cannot open a current zebrad's state:
+    # Zallet's zebra backend opens zebrad's RocksDB directory read-only, so the
+    # two must agree on the on-disk format. Zallet v0.1.0-beta.3 pins
+    # zebra-state 12 and zebra-rpc 15 (backends/zebra/Cargo.toml). zebra-state
+    # 12.0.1 is what zebrad v6.2.3 ships, and that tree declares
+    # DATABASE_FORMAT_VERSION = 28 -- the "v28" database Zallet looks for.
+    #
+    # Newer zebrad writes a newer format (v6.3.0 -> zebra-state 13, v7.0.0 ->
+    # 16) and Zallet then refuses to start:
     #   "no zebra-state v28 database found under /tmp/zebra-cache"
+    # That is a version pairing, not a defect on either side. When Zallet bumps
+    # its zebra-state range, move this commit with it.
     #
-    # The format bumps roughly monthly, so this will fix itself when Zallet
-    # ships a release built against a newer zebra-state. The job is kept and
-    # still runs so that is visible the moment it happens -- but it must not
-    # make every push red for a reason that is not ours to fix.
+    # Pinned by commit rather than tag so a moved tag cannot silently change
+    # what CI builds. 7121c82 is v6.2.3.
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -454,13 +460,13 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: bin/zebrad
-          key: zebrad-indexer-c1f84f3ee92a577ebaeaf5753a5f3cf261428e8e-${{ runner.os }}
+          key: zebrad-indexer-7121c82ba6795a151523d5b308a19743f4a1ade7-${{ runner.os }}
 
       - name: build zebrad
         if: steps.zebrad-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          ZEBRA_REV=c1f84f3ee92a577ebaeaf5753a5f3cf261428e8e
+          ZEBRA_REV=7121c82ba6795a151523d5b308a19743f4a1ade7  # v6.2.3
           git clone --quiet https://github.com/ZcashFoundation/zebra zebra-src
           git -C zebra-src checkout --quiet "$ZEBRA_REV"
           # --features indexer is REQUIRED by Zallet's default `zebra-state`
