@@ -31,7 +31,7 @@
 network = "Regtest"
 
 [network.testnet_parameters.activation_heights]
-# Two upstream constraints on zebra's block-template path both bite at height 1:
+# Three upstream constraints on zebra's block-template path all bite at height 1:
 #
 #  1. The coinbase for block 1 is signed with the v4 sighash, which only exists
 #     after Overwinter. With Overwinter above 1, block 1 is a pre-Overwinter
@@ -44,12 +44,26 @@ network = "Regtest"
 #     DefaultRoots::from_coinbase substitutes CHAIN_HISTORY_ACTIVATION_RESERVED.
 #     Otherwise zebrad aborts with "history root is required for block templates".
 #
+#  3. Zebrad refuses to build a template for a block before Canopy:
+#     "Zebra does not support generating pre-Canopy block templates". So Canopy
+#     has to be active at block 1 as well, which is what makes the miner usable
+#     at all on a fresh regtest chain.
+#
 # Activation heights are a BTreeMap<Height, NetworkUpgrade>, so two upgrades at
 # the same height COLLIDE and the later one silently wins. The listed order is
-# therefore load-bearing: Heartwood is last among the height-1 entries, so the
-# map really does contain {1: Heartwood} and Heartwood.activation_height() is
-# Some(1). Moving Canopy or any NU below would overwrite it and bring the
-# history-root panic straight back.
+# therefore load-bearing, but the rule is the opposite of the obvious one:
+# **Canopy is last among the height-1 entries**. Then
+#
+#   * the map holds {1: Canopy}, so Canopy.activation_height() is Some(1) and
+#     the miner stops refusing templates;
+#   * Heartwood is not in the map, so NetworkUpgrade::activation_height falls
+#     back to its *next* upgrade (Canopy), which is also 1 -- the history root
+#     still works;
+#   * Sapling, Blossom and Overwinter resolve to 1 the same way, down the chain.
+#
+# Putting Heartwood last instead would resolve Canopy to NU5's height and bring
+# "pre-Canopy block templates" straight back. The fallback is documented at
+# zebra-chain/src/parameters/network_upgrade.rs, activation_height().
 #
 # Heights only need to be non-decreasing; zebra rejects height < previous.
 # NU6.x keys need quoting because a bare NU6.1 is invalid TOML.
@@ -57,7 +71,7 @@ Overwinter = 1
 Sapling = 1
 Blossom = 1
 Heartwood = 1
-Canopy = 2
+Canopy = 1
 NU5 = 3
 "NU6" = 4
 "NU6.1" = 5
