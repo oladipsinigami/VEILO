@@ -116,7 +116,34 @@ network = "regtest"
 # The parameters for regtest mode.
 #
 # Ignored if `network` is not `NetworkType::Regtest`.
-#regtest_nuparams = []
+#
+# THESE MUST MATCH ops/zebrad-zallet-regtest.toml EXACTLY. Zallet compares the
+# consensus branch id it derives for each height against the one the node
+# reports, and shuts down rather than guess when they diverge:
+#
+#   "The chain has reached height 1, where the backing full node's consensus
+#    rules diverge from what this zallet build can interpret."
+#
+# Format is `<branch id hex>:<height>`, branch ids from the Zcash protocol spec
+# (zebra-chain/src/parameters/network_upgrade.rs lists the same values). Omitted
+# upgrades inherit the height of the next specified one, but everything is
+# spelled out here so a difference is visible rather than inferred.
+#
+# NU7 is deliberately absent: zebra v6.2.3 still carries a placeholder branch id
+# for it (0xfffffffe, with an upstream TODO), so Zallet cannot agree with the
+# node about that upgrade. The zebrad config moves NU7 far out of reach instead.
+regtest_nuparams = [
+  "5ba81b19:1", # Overwinter
+  "76b809bb:1", # Sapling
+  "2bb40e60:1", # Blossom
+  "f5b9230b:1", # Heartwood -- needed for block 1's chain history root
+  "e9ff75a6:1", # Canopy   -- zebra refuses pre-Canopy block templates
+  "c2d6d0b4:3", # NU5
+  "c8e71055:4", # NU6
+  "4dec4df0:5", # NU6.1
+  "5437f330:6", # NU6.2
+  "37a5165b:7", # NU6.3 (Ironwood)
+]
 
 
 #
