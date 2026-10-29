@@ -485,6 +485,16 @@ jobs:
           chmod +x bin/zebrad
           ./bin/zebrad --version
 
+      # restore/ and save/ are split so the cache is only written on a miss.
+      # Without this save step the restore above never has anything to find,
+      # and every run pays for a full zebrad build (~11 minutes) for nothing.
+      - name: save built zebrad
+        if: steps.zebrad-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: bin/zebrad
+          key: zebrad-indexer-7121c82ba6795a151523d5b308a19743f4a1ade7-${{ runner.os }}
+
       # ---- zallet ------------------------------------------------------------
       - name: install zallet
         run: bash ops/install-zallet.sh

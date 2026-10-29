@@ -85,6 +85,18 @@ fi
 mkdir -p "$HOME/.zallet"
 cp ops/zallet-regtest.toml "$HOME/.zallet/zallet.toml"
 
+# Zallet encrypts wallet key material at rest with an age identity and refuses
+# to start without one:
+#   "Encryption identity file could not be located at
+#    ~/.zallet/encryption-identity.txt"
+# A plain identity is the right choice here -- ephemeral regtest container,
+# nothing of value -- and the interactive passphrase path would hang CI. The
+# command writes to keystore.encryption_identity's default, which is this path.
+if [ ! -f "$HOME/.zallet/encryption-identity.txt" ]; then
+  log "generating a throwaway encryption identity (regtest only)"
+  "$ZALLET_BIN" generate-encryption-identity
+fi
+
 log "starting zallet (regtest, wallet rpc 28232)"
 "$ZALLET_BIN" start > ops/zallet.log 2>&1 &
 echo $! > "$DATA_DIR/zallet.pid"
