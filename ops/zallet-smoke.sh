@@ -115,9 +115,8 @@ fi
 # -28 "Wallet sync required". The command refuses on a wallet that already has a
 # chain height, so it only runs on a fresh one.
 #
-# It prints a transparent address intended for zebrad's miner. This milestone
-# does not mine, so the address is only echoed -- but creating the account is
-# the point, and the address is what the next milestone will need to fund it.
+# It prints a transparent address intended for zebrad's miner, and this script
+# uses it: see the mining step below.
 if [ "$FRESH_WALLET" = "1" ]; then
   log "creating the bootstrap account (regtest only)"
   MINER_ADDR=$("$ZALLET_BIN" regtest generate-account-and-miner-address)
@@ -128,11 +127,36 @@ if [ "$FRESH_WALLET" = "1" ]; then
   log "bootstrap miner address: $MINER_ADDR"
 fi
 
+# Without an address there is no way to mine, and without a mined block the
+# wallet never leaves `locked:true`. An existing wallet means the bootstrap
+# command refused (it only works on a fresh one), so say that instead of
+# waiting 90 seconds for a timeout that looks like a network problem.
+if [ -z "${MINER_ADDR:-}" ]; then
+  echo "no bootstrap miner address; this scratch wallet already has a chain" >&2
+  echo "height. Remove ~/.zallet and rerun for a clean regtest wallet." >&2
+  exit 1
+fi
+
+# zebrad's miner needs its address in the config, and `internal_miner = true`
+# only takes effect in a binary built with the internal-miner feature. The
+# committed config deliberately omits `miner_address` (see its header), so the
+# run gets its own copy rather than mutating the shared file.
+ZEBRAD_CFG="$DATA_DIR/zebrad.toml"
+sed 's/^internal_miner = false$/internal_miner = true/' ops/zebrad-zallet-regtest.toml |
+  awk -v addr="$MINER_ADDR" '{ print } /^\[mining\]$/ { print "miner_address = \"" addr "\"" }' \
+    > "$ZEBRAD_CFG"
+
+if ! grep -q '^internal_miner = true$' "$ZEBRAD_CFG" ||
+   ! grep -qF "miner_address = \"$MINER_ADDR\"" "$ZEBRAD_CFG"; then
+  echo "failed to enable the miner in $ZEBRAD_CFG" >&2
+  exit 1
+fi
+
 # --- zebrad ----------------------------------------------------------------
 # Cookie auth is off in ops/zebrad-zallet-regtest.toml and both listeners are on
 # loopback in an ephemeral CI container, so no auth juggling is needed here.
-log "starting zebrad (regtest, rpc 28233, indexer 28234)"
-"$ZEBRAD_BIN" -c ops/zebrad-zallet-regtest.toml > ops/zebrad-zallet.log 2>&1 &
+log "starting zebrad (regtest, rpc 28233, indexer 28234, miner)"
+"$ZEBRAD_BIN" -c "$ZEBRAD_CFG" > ops/zebrad-zallet.log 2>&1 &
 echo $! > "$DATA_DIR/zebrad.pid"
 
 for i in $(seq 1 60); do
@@ -149,6 +173,24 @@ if ! rpc 28233 '{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}' |
   tail -40 ops/zebrad-zallet.log >&2
   exit 1
 fi
+
+# --- mine one block --------------------------------------------------------
+# This is not decoration and not a "make the test pass" step. The bootstrap
+# account's birthday is block 0, so at height 0 the scanner has no block to
+# start on, `fully_synced_height` stays unset, `locked` stays true, and every
+# account RPC answers -28 forever. One block gives the wallet something real to
+# scan and marks the birthday synced.
+log "mining one regtest block so the wallet has a birthday block to scan"
+GEN=$(rpc 28233 '{"jsonrpc":"2.0","id":1,"method":"generate","params":[1]}')
+echo "$GEN"
+
+HEIGHT=$(rpc 28233 '{"jsonrpc":"2.0","id":1,"method":"getblockcount","params":[]}')
+if ! printf '%s' "$HEIGHT" | grep -q '"result":1'; then
+  echo "mining did not raise the chain to height 1: $HEIGHT" >&2
+  tail -40 ops/zebrad-zallet.log >&2
+  exit 1
+fi
+log "zebrad at height 1"
 
 # --- zallet ----------------------------------------------------------------
 log "starting zallet (regtest, wallet rpc 28232)"

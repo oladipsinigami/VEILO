@@ -460,7 +460,10 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: bin/zebrad
-          key: zebrad-indexer-7121c82ba6795a151523d5b308a19743f4a1ade7-${{ runner.os }}
+          # `miner` is part of the key because the previous cache holds a build
+          # without the internal-miner feature, and that binary cannot mine the
+          # block the wallet needs in order to finish its first sync.
+          key: zebrad-miner-7121c82ba6795a151523d5b308a19743f4a1ade7-${{ runner.os }}
 
       - name: build zebrad
         if: steps.zebrad-cache.outputs.cache-hit != 'true'
@@ -475,11 +478,17 @@ jobs:
           # with "the zebra-state backend requires an
           # [indexer.read_state_service] config section".
           #
+          # --features internal-miner adds the `generate` RPC. Zallet cannot
+          # finish its first sync at height 0 -- the bootstrap account's birthday
+          # is block 0, so there is no block for the scanner to start on and it
+          # stays locked forever -- which means one regtest block has to be
+          # mined before the wallet will answer account RPCs.
+          #
           # Also note that this port speaks gRPC, not JSON-RPC. An earlier
           # version of this project probed it with curl and got
           # "curl: (1) Received HTTP/0.9 when not allowed" -- that was gRPC
           # being fed an HTTP request, not a broken node.
-          cargo build --release --locked --manifest-path zebra-src/Cargo.toml             -p zebrad --bin zebrad --no-default-features --features indexer
+          cargo build --release --locked --manifest-path zebra-src/Cargo.toml             -p zebrad --bin zebrad --no-default-features --features indexer,internal-miner
           mkdir -p bin
           cp zebra-src/target/release/zebrad bin/zebrad
           chmod +x bin/zebrad
@@ -493,7 +502,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: bin/zebrad
-          key: zebrad-indexer-7121c82ba6795a151523d5b308a19743f4a1ade7-${{ runner.os }}
+          key: zebrad-miner-7121c82ba6795a151523d5b308a19743f4a1ade7-${{ runner.os }}
 
       # ---- zallet ------------------------------------------------------------
       - name: install zallet
