@@ -263,12 +263,18 @@ jobs:
         run: npm run demo:audit
 
   # ---------------------------------------------------------------------------
-  # 6. The one that needs a real Zcash node: regtest, end to end
+  # 6. The old regtest path, superseded by the Zallet job below
   #
   # MANUAL DISPATCH ONLY, deliberately. This job cannot pass on this project:
-  # zebrad has no wallet, and its internal miner cannot build a regtest block 1
-  # (upstream #8434 -- it needs Heartwood AND Canopy at height 1, and equal
-  # activation heights collide in zebra's BTreeMap). See ops/README.md.
+  # it drives zebrad as if it were a wallet, and zebrad has no wallet
+  # (`z_getnewaddress`, `z_getbalance` and `z_sendmany` all return -32601).
+  #
+  # Its header used to add that zebrad's miner "cannot build a regtest block 1
+  # (upstream #8434) ... equal activation heights collide in zebra's BTreeMap".
+  # The collision is real, the conclusion was not: Canopy must be the survivor
+  # at height 1, and Heartwood then resolves to the same height through
+  # NetworkUpgrade::activation_height's fallback. The Zallet job below mines
+  # block 1 every run, which is the proof. See ops/README.md.
   #
   # It used to run on every push via `!inputs.skip_zebra`, which is TRUE when the
   # input is unset on a push event. Every push therefore went red, which made a
@@ -416,12 +422,12 @@ jobs:
   #
   # This replaces the `regtest` job above, which tried to make zebrad do wallet
   # work it cannot do (it has no wallet at all: z_getnewaddress, z_getbalance
-  # and z_sendmany all return -32601) and whose internal miner cannot build
-  # block 1 anyway (upstream #8434).
+  # and z_sendmany all return -32601).
   #
-  # Milestone 1 (this job): prove zebrad and Zallet can run together and that
-  # Zallet can produce an address. Milestone 2 is funding it and sending a
-  # transaction carrying a real 512-byte Veilo memo, then feeding the resulting
+  # Milestone 2 (this job): zebrad and Zallet run together, the node mines block
+  # 1, the wallet syncs to it, creates an account and derives a `uregtest1...`
+  # Unified Address. Next is funding that address and sending a transaction
+  # carrying a real 512-byte Veilo memo, then feeding the resulting
   # encCiphertext to veilo-core's auditor.
   #
   # Runs on every push: unlike the old job this one is expected to be green, and
@@ -448,7 +454,10 @@ jobs:
     #
     # Pinned by commit rather than tag so a moved tag cannot silently change
     # what CI builds. 7121c82 is v6.2.3.
-    continue-on-error: true
+    #
+    # No continue-on-error: this job was red for its whole life until the pairing
+    # above was fixed, and it is the only thing in the repository that runs a
+    # real Zcash node. If it breaks, that has to be visible in the PR status.
     steps:
       - uses: actions/checkout@v4
 
